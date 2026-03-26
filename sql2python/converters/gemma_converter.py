@@ -53,7 +53,7 @@ class GemmaConverter:
             self.model_name,
             device_map=self._device_map,
             quantization_config=quantization_config,
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
         )
         print(f"[Gemma] 모델 로드 완료 (디바이스: {self.model.device})")
 

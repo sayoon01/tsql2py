@@ -47,6 +47,48 @@ python main.py preview --input examples/sql/sample1_simple_select.sql --backend 
 python main.py preview --input examples/sql/sample1_simple_select.sql --backend gpt --max-chars 0
 ```
 
+## 추천 워크플로우 (단일 파일 → 배치)
+
+실제 대량 변환 전에, **단일 파일 비교로 프롬프트/옵션/품질을 먼저 고정**한 뒤 `batch`로 확장하는 걸 권장합니다.
+
+### 1) 단일 파일 비교 (공정 비교: 둘 다 퓨샷)
+
+```bash
+python main.py compare \
+  --input examples/sql/sample2_transaction_audit.sql \
+  --num-examples 4 \
+  --output-dir output/
+```
+
+### 2) (선택) 단일 파일 3-way 비교 (GPT 제로샷 포함)
+
+```bash
+python main.py compare \
+  --include-zero-shot \
+  --input examples/sql/sample2_transaction_audit.sql \
+  --num-examples 4 \
+  --output-dir output/
+```
+
+### 3) 배치 비교 (공정 비교: 둘 다 퓨샷)
+
+```bash
+python main.py batch \
+  --input-dir examples/sql/ \
+  --num-examples 4 \
+  --output-dir output/
+```
+
+### 4) (선택) 배치 3-way 비교 (GPT 제로샷 포함)
+
+```bash
+python main.py batch \
+  --include-zero-shot \
+  --input-dir examples/sql/ \
+  --num-examples 4 \
+  --output-dir output/
+```
+
 ## 프로젝트 구조
 
 ```

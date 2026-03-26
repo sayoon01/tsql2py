@@ -32,6 +32,12 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 
+# .env 로드 (선택)
+try:
+    from dotenv import load_dotenv
+except Exception:  # python-dotenv 미설치 등
+    load_dotenv = None
+
 # 프로젝트 루트를 path에 추가
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -73,7 +79,9 @@ def _gpt_convert_kwargs(cfg: dict) -> dict:
 @click.group()
 def cli():
     """SQL2Python: MS SQL Procedure → Python 변환기 (Gemma 퓨샷 + GPT 비교)"""
-    pass
+    if load_dotenv is not None:
+        # 기본값: 현재 작업 디렉토리의 .env를 로드 (이미 설정된 환경변수는 덮어쓰지 않음)
+        load_dotenv(override=False)
 
 
 # ─────────── convert ───────────
