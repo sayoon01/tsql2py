@@ -28,14 +28,23 @@ python main.py convert --backend gemma --input examples/sql/sample1_simple_selec
 # 단일 파일 변환 (GPT)
 python main.py convert --backend gpt --input examples/sql/sample1_simple_select.sql
 
-# Gemma vs GPT 비교
+# Gemma vs GPT 비교 (기본: 둘 다 퓨샷으로 공정 비교)
 python main.py compare --input examples/sql/sample2_transaction_audit.sql
+
+# (선택) GPT 제로샷까지 포함해 3-way 비교
+python main.py compare --include-zero-shot --input examples/sql/sample2_transaction_audit.sql
 
 # 전체 SQL 일괄 변환 + 비교
 python main.py batch --input-dir examples/sql/ --output-dir output/
 
+# (선택) 배치에서도 GPT 제로샷 포함
+python main.py batch --include-zero-shot --input-dir examples/sql/ --output-dir output/
+
 # 프롬프트 미리보기 (모델 호출 없이)
 python main.py preview --input examples/sql/sample1_simple_select.sql --backend gemma
+
+# GPT 프롬프트 미리보기(메시지 전체 출력). 길면 --max-chars로 제한 가능
+python main.py preview --input examples/sql/sample1_simple_select.sql --backend gpt --max-chars 0
 ```
 
 ## 프로젝트 구조
@@ -94,9 +103,10 @@ output/ 디렉토리에 Python 코드 저장
 ```
 main.py (compare 커맨드)
   ↓
-[병렬 실행 (또는 순차)]
-  ├─ Gemma 변환 (위와 동일)
-  └─ GPT 변환 (위와 동일)
+[기본: 퓨샷-only 비교]
+  ├─ Gemma 변환 (퓨샷)
+  └─ GPT 변환 (퓨샷)
+  (선택) --include-zero-shot이면 GPT 제로샷도 추가 실행
   ↓
 converters/comparator.py (품질 비교)
   ├─ 구문 검증 (AST parse)

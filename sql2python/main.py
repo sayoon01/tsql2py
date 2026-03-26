@@ -4,11 +4,12 @@ SQL2Python - MS SQL Stored Procedure → Python 변환기
 Gemma (퓨샷) + GPT 비교 도구
 
 사용법:
-    # Gemma로 단일 파일 변환
+    # Gemma로 단일 파일 변환 (기본: 퓨샷 프롬프트)
     python main.py convert --backend gemma --input examples/sql/sample1.sql
 
-    # GPT로 변환 (퓨샷)
-    python main.py convert --backend gpt --input examples/sql/sample1.sql
+    # GPT로 변환 (기본: 퓨샷, 옵션으로 제로샷 가능)
+    python main.py convert --backend gpt --input examples/sql/sample1.sql          # 퓨샷
+    python main.py convert --backend gpt --zero-shot --input examples/sql/sample1.sql  # 제로샷
 
     # Gemma vs GPT 비교
     python main.py compare --input examples/sql/sample1.sql
@@ -150,8 +151,13 @@ def convert(backend, input_path, output_dir, few_shot, num_examples, config_path
 @click.option("--output-dir", default="./output", help="출력 디렉토리")
 @click.option("--num-examples", default=3, help="퓨샷 예시 수")
 @click.option("--config", "config_path", default="config.yaml")
-def compare(input_path, output_dir, num_examples, config_path):
-    """Gemma vs GPT 변환 결과를 비교합니다."""
+@click.option(
+    "--include-zero-shot/--few-shot-only",
+    default=False,
+    help="GPT 제로샷도 함께 실행해 3-way 비교할지 여부 (기본: Gemma vs GPT 퓨샷만 비교)",
+)
+def compare(input_path, output_dir, num_examples, config_path, include_zero_shot):
+    """Gemma vs GPT 변환 결과를 비교합니다 (기본: 둘 다 퓨샷)."""
     cfg = load_config(config_path)
     sql_path = Path(input_path)
 
@@ -188,14 +194,16 @@ def compare(input_path, output_dir, num_examples, config_path):
         **_gpt_convert_kwargs(cfg),
     )
 
-    # 3) GPT 제로샷 변환
-    console.print("\n[bold magenta]━━━ GPT (제로샷) 변환 중... ━━━[/bold magenta]")
-    gpt_zs_result = gpt.convert_file(
-        sql_path,
-        output_dir=output_dir,
-        use_few_shot=False,
-        **_gpt_convert_kwargs(cfg),
-    )
+    gpt_zs_result = None
+    if include_zero_shot:
+        # 3) GPT 제로샷 변환
+        console.print("\n[bold magenta]━━━ GPT (제로샷) 변환 중... ━━━[/bold magenta]")
+        gpt_zs_result = gpt.convert_file(
+            sql_path,
+            output_dir=output_dir,
+            use_few_shot=False,
+            **_gpt_convert_kwargs(cfg),
+        )
 
     # 4) 비교 분석
     comp = Comparator()
@@ -220,7 +228,12 @@ def compare(input_path, output_dir, num_examples, config_path):
 @click.option("--output-dir", default="./output", help="출력 디렉토리")
 @click.option("--num-examples", default=3)
 @click.option("--config", "config_path", default="config.yaml")
-def batch(input_dir, output_dir, num_examples, config_path):
+@click.option(
+    "--include-zero-shot/--few-shot-only",
+    default=False,
+    help="배치에서도 GPT 제로샷을 함께 실행할지 여부 (기본: Gemma vs GPT 퓨샷만)",
+)
+def batch(input_dir, output_dir, num_examples, config_path, include_zero_shot):
     """폴더 내 전체 SQL을 일괄 변환하고 비교합니다."""
     cfg = load_config(config_path)
     sql_dir = Path(input_dir)
@@ -260,12 +273,14 @@ def batch(input_dir, output_dir, num_examples, config_path):
             num_examples=num_examples,
             **_gpt_convert_kwargs(cfg),
         )
-        gpt_zs_result = gpt.convert_file(
-            sql_path,
-            output_dir=output_dir,
-            use_few_shot=False,
-            **_gpt_convert_kwargs(cfg),
-        )
+        gpt_zs_result = None
+        if include_zero_shot:
+            gpt_zs_result = gpt.convert_file(
+                sql_path,
+                output_dir=output_dir,
+                use_few_shot=False,
+                **_gpt_convert_kwargs(cfg),
+            )
 
         comparison = comp.compare(
             sql_file=str(sql_path),
@@ -287,7 +302,14 @@ def batch(input_dir, output_dir, num_examples, config_path):
 @click.option("--input", "input_path", required=True, help="SQL 파일 경로")
 @click.option("--backend", type=click.Choice(["gemma", "gpt"]), default="gemma")
 @click.option("--num-examples", default=3)
-def preview(input_path, backend, num_examples):
+@click.option(
+    "--max-chars",
+    default=0,
+    type=int,
+    show_default=True,
+    help="GPT 미리보기에서 각 메시지당 최대 출력 문자 수 (0이면 제한 없음)",
+)
+def preview(input_path, backend, num_examples, max_chars):
     """생성될 프롬프트를 미리봅니다 (모델 호출 없이)."""
     sql_code = Path(input_path).read_text(encoding="utf-8")
 
@@ -300,8 +322,16 @@ def preview(input_path, backend, num_examples):
         console.print(Panel(f"메시지 수: {len(messages)}", title="GPT 프롬프트 미리보기"))
         for msg in messages:
             role_color = {"system": "red", "user": "green", "assistant": "blue"}.get(msg["role"], "white")
+            content = msg.get("content", "") or ""
+            truncated = False
+            if max_chars and len(content) > max_chars:
+                content = content[:max_chars]
+                truncated = True
+
             console.print(f"\n[bold {role_color}]── {msg['role'].upper()} ──[/bold {role_color}]")
-            console.print(msg["content"][:500] + ("..." if len(msg["content"]) > 500 else ""))
+            console.print(Syntax(content, "text", theme="monokai", word_wrap=True))
+            if truncated:
+                console.print(f"[dim](출력 제한으로 일부가 생략되었습니다: --max-chars {max_chars})[/dim]")
 
 
 # ═══════════════════════════════════════

@@ -119,8 +119,11 @@ python main.py convert --backend gemma --input examples/sql/sample1.sql
 # GPT 변환 (퓨샷)
 python main.py convert --backend gpt --input examples/sql/sample1.sql
 
-# Gemma vs GPT 비교
+# Gemma vs GPT 비교 (기본: 둘 다 퓨샷으로 공정 비교)
 python main.py compare --input examples/sql/sample1.sql
+
+# (선택) GPT 제로샷까지 포함해 3-way 비교
+python main.py compare --include-zero-shot --input examples/sql/sample1.sql
 
 # 배치 변환
 python main.py batch --input-dir examples/sql/ --output-dir output/
@@ -163,9 +166,12 @@ python main.py convert --backend gpt --input sample.sql
 ### 시나리오 C: 비교 분석
 
 ```bash
-# Gemma vs GPT-4o (3가지 모두 비교)
+# 기본(추천): Gemma(퓨샷) vs GPT(퓨샷) 공정 비교
 python main.py compare --input sample.sql
 # → JSON 리포트 생성 (품질 점수 포함)
+
+# (선택) 3-way: GPT 제로샷도 포함
+python main.py compare --include-zero-shot --input sample.sql
 ```
 
 ### 시나리오 D: 대량 변환
@@ -203,7 +209,8 @@ A: 4B는 단순 쿼리만 추천. 12B 이상 사용하세요.
 A: 호출당 $0.01~0.03. 100개 SQL = $1~3 (저렴).
 
 **Q: 퓨샷 없이도 작동하나요?**  
-A: 네, `--zero-shot` 옵션으로 가능하지만 정확도 50% 수준.
+A: 네. GPT는 `python main.py convert --backend gpt --zero-shot ...`로 가능하지만 품질이 떨어질 수 있습니다.  
+비교 모드에서는 기본이 퓨샷-only이고, 3-way가 필요하면 `python main.py compare --include-zero-shot ...`를 사용하세요.
 
 **Q: 어떤 SQL 문법을 지원하나요?**  
 A: T-SQL 대부분 지원. XML, JSON 처리 등은 부분 지원.
