@@ -1,0 +1,59 @@
+# 환경 변수
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 모델 및 캐시
+*.bin
+*.pt
+*.pth
+*.ckpt
+models/
+cache/
+.cache/
+
+# 변환 결과
+output/
+*.py~
+
+# 데이터
+*.db
+*.sqlite
+*.csv
+data/
+
+# OS
+.DS_Store
+Thumbs.db

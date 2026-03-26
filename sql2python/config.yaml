@@ -1,0 +1,43 @@
+# ============================================================
+#  SQL → Python 변환기 설정
+# ============================================================
+#
+# 공정 비교(Gemma vs GPT) 체크리스트
+# - temperature / max 토큰 / top_p 는 gpt 섹션과 동일하게 맞춤.
+# - Gemma만 4bit이면 GPT(풀정밀) 대비 불리할 수 있음 → VRAM 여유 시
+#   load_in_4bit: false 권장.
+# - OpenAI 쪽에는 HF repetition_penalty 와 1:1 대응 옵션이 없음(미세 차이).
+
+gemma:
+  # HuggingFace 모델 이름 (로컬 GPU에서 실행)
+  model_name: "google/gemma-3-27b-it"    # 27B (고성능, GPU 24GB+)con
+
+  # 생성 파라미터
+  temperature: 0.15
+  top_p: 0.9
+  max_new_tokens: 4096
+  repetition_penalty: 1.1
+
+  # 양자화 (GPU VRAM 절약)
+  load_in_4bit: true        # true면 QLoRA 4bit 양자화 (VRAM ~8GB 절약)
+  load_in_8bit: false
+
+gpt:
+  model_name: "gpt-4o"      # 또는 "gpt-4o-mini", "gpt-4.1" (바꾸면 문서·.env 안내 주석도 맞추기)
+  temperature: 0.15
+  top_p: 0.9               # gemma.top_p 와 동일 (핵 샘플링)
+  max_tokens: 4096
+  # OPENAI_API_KEY 환경변수 필요 (.env 등 — 기본 GPT-4o, model_name 바뀌면 동일 키로 해당 모델)
+
+# 퓨샷 설정
+few_shot:
+  num_examples: 3            # 프롬프트에 포함할 예시 수 (1~5)
+  python_style: "pyodbc"     # pyodbc | sqlalchemy
+  include_type_hints: true
+  include_docstring: true
+
+# 출력 설정
+output:
+  dir: "./output"
+  add_comments: true          # 변환 주석 포함
+  format_with_black: true     # black 포매터 적용
