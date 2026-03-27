@@ -28,14 +28,19 @@ def get_active_users(
     conn_str: str,
     min_age: int = 18,
     max_results: int = 100,
+    sort_order: str = "ASC",
 ) -> pd.DataFrame:
     \"\"\"활성 사용자 목록을 조회합니다.\"\"\"
+    if sort_order not in {"ASC", "DESC"}:
+        raise ValueError("sort_order는 'ASC' 또는 'DESC'여야 합니다.")
+
     query = \"\"\"
         SELECT TOP(?) UserID, UserName, Email, Age
         FROM Users
         WHERE IsActive = 1 AND Age >= ?
-        ORDER BY UserName
     \"\"\"
+    query += f" ORDER BY UserName {sort_order}"
+
     with pyodbc.connect(conn_str) as conn:
         df = pd.read_sql(query, conn, params=[max_results, min_age])
     return df"""
@@ -99,6 +104,7 @@ def update_order_status(
 ) -> UpdateResult:
     \"\"\"주문 상태를 변경하고 감사 로그를 기록합니다.\"\"\"
     with pyodbc.connect(conn_str) as conn:
+        conn.autocommit = False
         cursor = conn.cursor()
         try:
             # 상태 업데이트
@@ -111,6 +117,7 @@ def update_order_status(
                 new_status, updated_by, datetime.now(), order_id,
             )
             updated_count = cursor.rowcount
+            update_event_id = cursor.lastrowid
 
             # 감사 로그 기록
             cursor.execute(
@@ -182,7 +189,7 @@ END"""
 EXAMPLE_3_PYTHON = """\
 import pyodbc
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 
 
 def process_monthly_report(

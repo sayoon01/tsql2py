@@ -10,7 +10,7 @@
 
 gemma:
   # HuggingFace 모델 이름 (로컬 GPU에서 실행)
-  model_name: "google/gemma-3-27b-it"    # 27B (고성능, GPU 24GB+)con
+  model_name: "google/gemma-3-27b-it"    # 27B (고성능, GPU 24GB+)
 
   # 생성 파라미터
   temperature: 0.15
@@ -27,7 +27,7 @@ gpt:
   temperature: 0.15
   top_p: 0.9               # gemma.top_p 와 동일 (핵 샘플링)
   max_tokens: 4096
-  # OPENAI_API_KEY 환경변수 필요 (.env 등 — 기본 GPT-4o, model_name 바뀌면 동일 키로 해당 모델)
+  # OPENAI_API_KEY 환경변수 필요 (.env 등 — 위 모델 gpt-4o 호출)
 
 # 퓨샷 설정
 few_shot:

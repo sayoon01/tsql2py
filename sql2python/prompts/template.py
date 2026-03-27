@@ -21,12 +21,18 @@ SYSTEM_INSTRUCTION = """\
 8. MERGE              → SELECT 존재 여부 확인 후 INSERT 또는 UPDATE
 9. SET NOCOUNT ON     → 생략 (Python에는 불필요)
 10. @@ROWCOUNT        → cursor.rowcount
+11. query.format()으로 SQL 직접 조립 금지
+12. BEGIN TRANSACTION 직접 실행 금지
+13. SCOPE_IDENTITY() 직접 조회 금지
 
 추가 요구사항:
 - pyodbc 사용, 파라미터 바인딩은 반드시 ? 플레이스홀더 사용
 - pandas import하여 결과가 테이블이면 DataFrame으로 반환
 - 함수에 docstring 포함
 - SQL Injection 방지를 위해 동적 SQL의 정렬 컬럼 등은 화이트리스트 검증
+- query.format() 대신 f-string + 화이트리스트 검증 후 SQL 문자열 연결 사용
+- 트랜잭션 시작은 conn.autocommit = False 사용 (BEGIN TRANSACTION 금지)
+- INSERT 직후 식별자가 필요하면 cursor.lastrowid 사용 (SCOPE_IDENTITY() 금지)
 - 완전한 실행 가능 코드만 출력 (설명 없이 코드 블록만)
 """
 
