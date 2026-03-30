@@ -44,7 +44,11 @@ console = Console()
 
 
 def load_config(path: str = "config.yaml") -> dict:
-    with open(path, "r", encoding="utf-8") as f:
+    """설정 파일을 로드합니다. 상대 경로는 항상 main.py가 있는 디렉터리 기준입니다."""
+    p = Path(path)
+    if not p.is_absolute():
+        p = Path(__file__).resolve().parent / p
+    with open(p, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
