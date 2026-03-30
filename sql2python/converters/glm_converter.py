@@ -1,9 +1,6 @@
 """
-Gemma 기반 SQL → Python 변환기
+GLM-4.5-Air 기반 SQL → Python 변환기
 HuggingFace Transformers 로컬 GPU 실행.
-
-- 기본 device_map 은 cuda:0. CPU-only/다중 GPU 환경이면 생성자 인자로 조정.
-- 추출한 코드에 prompts.post_process.fix_missing_imports 를 적용해 누락 import 를 보완.
 """
 from __future__ import annotations
 
@@ -18,15 +15,15 @@ from prompts.template import build_gemma_prompt
 from prompts.post_process import fix_missing_imports
 
 
-class GemmaConverter:
-    """Gemma 모델을 사용해 MS SQL 프로시저를 Python 코드로 변환합니다."""
+class GLMConverter:
+    """GLM-4.5-Air 모델을 사용해 MS SQL 프로시저를 Python 코드로 변환합니다."""
 
     def __init__(
         self,
-        model_name: str = "google/gemma-3-12b-it",
+        model_name: str = "THUDM/GLM-4.5-Air-12B",
         load_in_4bit: bool = True,
         load_in_8bit: bool = False,
-        device_map: str = "cuda:0",  # auto → cuda:0 (GB10 등 단일 GPU)
+        device_map: str = "cuda:0",
     ):
         self.model_name = model_name
         self.model = None
@@ -38,7 +35,7 @@ class GemmaConverter:
     # ─────────── 모델 로드 ───────────
     def load_model(self) -> None:
         """모델과 토크나이저를 GPU에 로드합니다."""
-        print(f"[Gemma] 모델 로딩 중: {self.model_name} ...")
+        print(f"[GLM] 모델 로딩 중: {self.model_name} ...")
 
         quantization_config = None
         if self._load_in_4bit:
@@ -51,14 +48,16 @@ class GemmaConverter:
         elif self._load_in_8bit:
             quantization_config = BitsAndBytesConfig(load_in_8bit=True)
 
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.model_name, trust_remote_code=True
+        )
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_name,
             device_map=self._device_map,
             quantization_config=quantization_config,
-            # dtype=torch.bfloat16,  # 4bit 양자화 시 불필요
+            trust_remote_code=True,
         )
-        print(f"[Gemma] 모델 로드 완료 (디바이스: {self.model.device})")
+        print(f"[GLM] 모델 로드 완료 (디바이스: {self.model.device})")
 
     # ─────────── 모델 언로드 ───────────
     def unload_model(self) -> None:
@@ -69,7 +68,7 @@ class GemmaConverter:
             self.model = None
             self.tokenizer = None
             torch.cuda.empty_cache()
-            print("[Gemma] 모델 언로드 완료")
+            print("[GLM] 모델 언로드 완료")
 
     # ─────────── 변환 실행 ───────────
     def convert(
@@ -90,15 +89,22 @@ class GemmaConverter:
         if self.model is None:
             self.load_model()
 
-        prompt = build_gemma_prompt(sql_code, num_examples=num_examples)
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
-        input_len = inputs["input_ids"].shape[1]
+        # GLM은 apply_chat_template + tokenize=True 방식 사용
+        prompt_text = build_gemma_prompt(sql_code, num_examples=num_examples)
+        messages = [{"role": "user", "content": prompt_text}]
+        inputs = self.tokenizer.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_tensors="pt",
+        ).to(self.model.device)
+        input_len = inputs.shape[1]
 
         t0 = time.perf_counter()
         try:
             with torch.no_grad():
                 outputs = self.model.generate(
-                    **inputs,
+                    inputs,
                     max_new_tokens=max_new_tokens,
                     temperature=temperature,
                     top_p=top_p,
@@ -115,7 +121,6 @@ class GemmaConverter:
         generated_ids = outputs[0][input_len:]
         raw_text = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
 
-        # 코드 추출 → 후처리
         python_code = self._extract_code(raw_text)
         python_code = fix_missing_imports(python_code)
 
@@ -126,7 +131,7 @@ class GemmaConverter:
             "input_tokens": input_len,
             "output_tokens": len(generated_ids),
             "model": self.model_name,
-            "backend": "gemma_hf",
+            "backend": "glm_hf",
             "few_shot": num_examples,
         }
 
@@ -175,12 +180,12 @@ class GemmaConverter:
         sql_code = sql_path.read_text(encoding="utf-8")
         result = self.convert(sql_code, **kwargs)
 
-        out_file = output_dir / f"{sql_path.stem}_gemma.py"
+        out_file = output_dir / f"{sql_path.stem}_glm.py"
         out_file.write_text(result["python_code"], encoding="utf-8")
         result["output_file"] = str(out_file)
 
         print(
-            f"[Gemma] 변환 완료: {sql_path.name} → {out_file.name} "
+            f"[GLM] 변환 완료: {sql_path.name} → {out_file.name} "
             f"({result['elapsed_sec']}초, {result['output_tokens']} 토큰, "
             f"퓨샷: {result['few_shot']}개)"
         )

@@ -1,3 +1,5 @@
+"""모델 출력 Python 코드에 대한 경량 후처리(누락 import, GPT 비권장 패턴 등)."""
+
 import re
 
 

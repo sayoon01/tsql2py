@@ -1,9 +1,24 @@
+# ── 공통 ──
 torch>=2.1.0
 transformers>=4.44.0
 accelerate>=0.30.0
 bitsandbytes>=0.43.0
-openai>=1.30.0
+
+# ── Qwen2.5-Coder 필요 ──
+sentencepiece>=0.1.99
+tiktoken>=0.7.0
+
+# ── GLM-4.5-Air 필요 ──
+einops>=0.7.0
+
+# ── 변환 결과 처리 ──
+pandas>=2.0.0
+
+# ── CLI / 유틸 ──
 rich>=13.7.0
 pyyaml>=6.0
 click>=8.1.0
 python-dotenv>=1.0.0
+
+# ── GPT 비활성화 (필요 시 주석 해제) ──
+# openai>=1.30.0
