@@ -1,64 +1,63 @@
 # SQL2Python
 
-MS SQL Server 저장 프로시저를 Python 코드로 자동 변환하는 도구입니다.
-**Gemma 3 12B / Qwen2.5-Coder 14B / GLM-4.5-Air 12B** 3개 모델을 퓨샷 프롬프팅으로 비교합니다.
+MS SQL Server 저장 프로시저를 Python 코드로 변환하는 CLI 도구입니다.  
+**Ollama**로 `config.yaml`에 지정한 세 태그(기본 예: `gemma3:12b`, `qwen3:14b`, community GLM 등)를 같은 퓨샷 조건에서 **3-way 비교**합니다.
 
 ---
 
 ## 설치
+
 ```bash
+cd sql2python    # 저장소 루트에서 sql2python 디렉터리로 이동
 pip install -r requirements.txt
 ```
 
 ### 필수 환경
 
-- Python 3.10+
-- CUDA GPU (로컬 모델 실행 시)
-  - 12B 모델: 16GB+ VRAM (4bit 양자화 시 8GB+)
-  - 14B 모델: 16GB+ VRAM (4bit 양자화 시 10GB+)
-- HuggingFace 토큰 (Gemma 접근용)
+- **Python 3.10+**
+- **[Ollama](https://ollama.com/)** 설치 후 데몬 실행 (`ollama serve`, 기본 `http://localhost:11434`)
+- `config.yaml`에 적힌 태그와 동일하게 모델 pull (예):
+
 ```bash
-export HF_TOKEN="hf_..."   # HuggingFace 토큰
+ollama pull gemma3:12b
+ollama pull qwen3:14b
+ollama pull glm-4.7-flash:Q4_K_M   # 위 YAML glm.model_name 과 동일 문자열
 ```
 
-> GPT는 현재 비활성화 상태입니다.
-> 사용하려면 `config.yaml`의 `gpt:` 블록 주석을 해제하고
-> `OPENAI_API_KEY` 환경변수를 설정하세요.
+설치 후 **`ollama list`에 표시된 문자열**이 `config.yaml`의 `gemma` / `qwen` / `glm` 의 `model_name` 과 **한 글자도 다르면 안 됩니다.**  
+양자화 태그(`:Q4_K_M` 등)를 쓰는 변형은 **이름이 다른 모델**이므로, pull한 태그와 YAML을 함께 맞추세요.
+
+서버 주소를 바꾸려면 `config.yaml`의 `ollama.host`를 수정합니다.
+
+> **GPT(OpenAI)** 는 기본 비활성입니다. 쓰려면 `config.yaml`에서 `gpt:` 블록 주석을 해제하고 `OPENAI_API_KEY`를 설정한 뒤, `converters/gpt_converter.py` 및 `main.py`를 GPT 경로에 맞게 연결해야 합니다. 현재 CLI는 **Ollama 전용**입니다.
 
 ---
 
 ## 사용법
-```bash
-# 단일 파일 변환 (모델 선택: gemma / qwen / glm)
-python main.py convert --backend gemma --input examples/sql/usp_modified_book_storebook.sql
-python main.py convert --backend qwen  --input examples/sql/usp_modified_book_storebook.sql
-python main.py convert --backend glm   --input examples/sql/usp_modified_book_storebook.sql
 
-# 퓨샷 예시 수 지정 (기본 3개, 최대 10개)
+작업 디렉터리는 **`sql2python/`** (`main.py`가 있는 곳) 기준입니다.
+
+```bash
+cd sql2python
+
+# 단일 변환 (백엔드: gemma | qwen | glm)
 python main.py convert --backend gemma \
-  --input examples/sql/usp_modified_book_storebook.sql \
+  --input examples/sql/usp_add_authorbook_storebook.sql \
   --num-examples 10
 
-# 3개 모델 동시 비교 (기본 퓨샷 3개)
-python main.py compare --input examples/sql/usp_add_authorbook_storebook.sql
-
-# 퓨샷 10개로 3개 모델 비교
+# 3-way 비교 (Gemma vs Qwen vs GLM, 동일 퓨샷 개수 — 태그는 config.yaml 참고)
 python main.py compare \
   --input examples/sql/usp_add_authorbook_storebook.sql \
   --num-examples 10
 
-# 전체 SQL 일괄 변환 + 비교 (배치)
-python main.py batch --input-dir examples/sql/ --output-dir output/
-
-# 배치 + 퓨샷 10개
+# 배치: 디렉터리 내 *.sql 전부 변환 + 파일마다 3-way 비교
 python main.py batch \
   --input-dir examples/sql/ \
-  --num-examples 10 \
-  --output-dir output/
+  --num-examples 10
 
-# 프롬프트 미리보기 (모델 호출 없이)
+# 프롬프트만 미리보기 (모델 호출 없음)
 python main.py preview \
-  --input examples/sql/usp_modified_book_storebook.sql \
+  --input examples/sql/usp_add_authorbook_storebook.sql \
   --backend gemma \
   --num-examples 10
 ```
@@ -67,214 +66,100 @@ python main.py preview \
 
 ## 추천 워크플로우
 
-실제 대량 변환 전에 **단일 파일 비교로 품질을 먼저 확인**한 뒤 `batch`로 확장하는 걸 권장합니다.
+1. **단일 파일** `compare`로 퓨샷 개수(예: 3 → 10)를 조절해 품질을 본 뒤  
+2. **`batch`** 로 같은 설정을 전체 SQL에 적용합니다.
 
-### 1) 단일 파일 빠른 테스트 (퓨샷 3개)
-```bash
-python main.py compare \
-  --input examples/sql/usp_add_authorbook_storebook.sql \
-  --num-examples 3 \
-  --output-dir output/
-```
-
-### 2) 단일 파일 정밀 비교 (퓨샷 10개 전체)
-```bash
-python main.py compare \
-  --input examples/sql/usp_add_authorbook_storebook.sql \
-  --num-examples 10 \
-  --output-dir output/
-```
-
-### 3) 배치 처리 (퓨샷 10개)
-```bash
-python main.py batch \
-  --input-dir examples/sql/ \
-  --num-examples 10 \
-  --output-dir output/
-```
-
-> **퓨샷 예시 수 선택 가이드**
-> ```
-> --num-examples 3   → 빠른 테스트, 토큰 절약
-> --num-examples 5   → 균형 (추천)
-> --num-examples 10  → 최고 품질, 토큰 2배 소모
-> ```
+| `--num-examples` | 용도 |
+|------------------|------|
+| 3 | 빠른 테스트, 토큰 절약 |
+| 5 | 균형 |
+| 10 | 예시 풀 전부 사용 (`few_shot_examples.py`의 `ALL_EXAMPLES` 앞에서 N개) |
 
 ---
 
 ## 프로젝트 구조
+
 ```
 sql2python/
-├── main.py                   # CLI 진입점
-├── config.yaml               # 모델/생성 파라미터 설정
+├── main.py                     # CLI (convert / compare / batch / preview)
+├── config.yaml                 # Ollama 모델명·생성 파라미터·ollama.host
 ├── requirements.txt
 ├── prompts/
-│   ├── few_shot_examples.py  # 퓨샷 예시 10종 (ALL_EXAMPLES)
-│   ├── template.py           # 프롬프트 빌더 (Gemma/Qwen/GLM 공통)
-│   └── post_process.py       # 생성 코드 후처리 (누락 import 보완)
+│   ├── few_shot_examples.py   # 퓨샷 10종 (ALL_EXAMPLES)
+│   ├── template.py            # 프롬프트 빌더 (백엔드 공통 텍스트 프롬프트)
+│   └── post_process.py        # 생성 코드 후처리
 ├── converters/
-│   ├── gemma_converter.py    # HuggingFace Gemma 3 12B 변환기
-│   ├── qwen_converter.py     # HuggingFace Qwen2.5-Coder 14B 변환기
-│   ├── glm_converter.py      # HuggingFace GLM-4.5-Air 12B 변환기
-│   ├── gpt_converter.py      # OpenAI GPT 변환기 (현재 비활성화)
-│   └── comparator.py         # 품질 분석 및 3-way 비교 엔진
-├── examples/sql/             # BookStore 샘플 프로시저 (usp_*.sql 4개)
-└── output/                   # 변환 결과 저장
+│   ├── ollama_converter.py    # ★ 실제 사용: Ollama HTTP API 추론
+│   ├── comparator.py         # 3-way 품질 점수·리포트
+│   ├── gpt_converter.py      # OpenAI용 (기본 미연동)
+│   ├── gemma_converter.py    # 레거시: HuggingFace 직접 로드 (현재 main 미사용)
+│   ├── qwen_converter.py     # 레거시: HF (현재 main 미사용)
+│   └── glm_converter.py      # 레거시: HF (현재 main 미사용)
+├── examples/sql/
+└── output/                     # 변환 결과 (git 무시 권장)
 ```
 
-### 각 모듈의 역할
+### 모듈 요약
 
-| 파일/모듈 | 역할 |
-|---|---|
-| **main.py** | CLI 진입점. `convert` / `compare` / `batch` / `preview` 4가지 커맨드 |
-| **config.yaml** | 모델명, temperature, max_new_tokens 등 설정 |
-| **prompts/template.py** | SQL → 프롬프트 변환. Gemma/Qwen/GLM 공통 프롬프트 템플릿 |
-| **prompts/few_shot_examples.py** | 10종 SQL→Python 퓨샷 쌍. `--num-examples 1~10`으로 선택 |
-| **prompts/post_process.py** | 생성 코드 보정 (누락 `date` import 등 자동 보완) |
-| **converters/gemma_converter.py** | Gemma 3 12B 로컬 추론. `device_map=cuda:0`, OOM 처리 포함 |
-| **converters/qwen_converter.py** | Qwen2.5-Coder 14B 로컬 추론. chat template 방식 |
-| **converters/glm_converter.py** | GLM-4.5-Air 12B 로컬 추론. apply_chat_template + tokenize=True |
-| **converters/gpt_converter.py** | OpenAI GPT 변환기 (비활성화, 주석처리 상태) |
-| **converters/comparator.py** | 3개 모델 결과 비교 및 품질 점수 계산 (0~100점) |
+| 파일 | 역할 |
+|------|------|
+| **main.py** | `OllamaConverter`로 gemma/qwen/glm 백엔드 순차 호출, 리포트 저장 |
+| **config.yaml** | 각 백엔드별 `model_name`, temperature, top_p, `max_new_tokens` 등 |
+| **ollama_converter.py** | `build_gemma_prompt` + Ollama `/api/generate` 호출, 코드 블록 추출 |
+| **comparator.py** | AST·휴리스틱 기반 품질 점수, JSON 리포트 |
+| **gemma / qwen / glm_converter.py** | 예전 HF 파이프라인; **삭제 후보**(저장소 정리 시). `main.py`는 import하지 않음 |
 
 ---
 
-### 실행 흐름
+## 실행 흐름 (요약)
 
-#### 1️⃣ 단일 변환 (convert)
-```
-main.py (CLI 입력)
-  ↓
-config.yaml (설정 로드)
-  ↓
-[모델 선택: gemma / qwen / glm]
-  ↓
-prompts/template.py
-  → few_shot_examples.py에서 num_examples개 예시 선택
-  → 프롬프트 빌드
-  ↓
-converters/[모델]_converter.py
-  → 모델 로드 (4bit 양자화)
-  → 추론 실행
-  → 코드 추출
-  → post_process.py (import 보완)
-  ↓
-output/ 에 Python 파일 저장
-```
+**convert**  
+`config.yaml` 로드 → 선택 백엔드의 `model_name`으로 `OllamaConverter` → 퓨샷 N개 포함 프롬프트 → 응답에서 Python 추출 → `post_process` → `output/`
 
-#### 2️⃣ 3-way 비교 (compare)
-```
-main.py (compare 커맨드)
-  ↓
-Gemma 변환 → unload_model()
-  ↓
-Qwen 변환  → unload_model()
-  ↓
-GLM 변환   → unload_model()
-  ↓
-converters/comparator.py
-  ├─ AST 구문 검증
-  ├─ 타입힌트 / docstring / 파라미터 바인딩 등 확인
-  └─ 품질 점수 계산 (0~100)
-  ↓
-3-way 비교 테이블 출력 + JSON 리포트 저장
-```
-
-#### 3️⃣ 배치 처리 (batch)
-```
-main.py (batch 커맨드)
-  ↓
-SQL 파일 목록 수집 (*.sql)
-  ↓
-파일마다 반복:
-  Gemma 변환 → unload
-  Qwen 변환  → unload
-  GLM 변환   → unload
-  3-way 비교 테이블 출력
-  ↓
-전체 요약 테이블 + batch_report.json 저장
-```
+**compare / batch**  
+각 파일에 대해 `gemma` → `qwen` → `glm` 순으로 같은 `num_examples`로 변환 → 콘솔 표 + `comparison_report.json` 또는 `batch_report.json`
 
 ---
 
 ## 퓨샷 예시 (`prompts/few_shot_examples.py`)
 
-`ALL_EXAMPLES`에 **10종** SQL→Python 쌍이 있으며,
-`--num-examples`(1~10)만큼 앞에서부터 프롬프트에 포함됩니다.
+`ALL_EXAMPLES`에 **10종** SQL→Python 쌍이 있으며, `--num-examples`(1~10)만큼 **앞에서부터** 프롬프트에 넣습니다.
 
-| 순서 | tag | 요약 |
-|---|---|---|
-| 1 | `simple_select` | 단순 SELECT + `?` 바인딩 |
-| 2 | `transaction` | 트랜잭션 · OUTPUT · TRY/CATCH |
-| 3 | `temp_table` | 임시 집계 테이블 · JOIN 일괄 UPDATE |
-| 4 | `dynamic_sql` | 페이지 / 정렬 검증 · 동적 SQL |
-| 5 | `merge_upsert` | UPDATE 후 ROWCOUNT 기반 INSERT |
-| 6 | `soft_delete` | Soft delete · 삭제 로그 |
-| 7 | `bulk_insert` | 스테이징 · 중복 제외 일괄 삽입 |
-| 8 | `scalar_aggregate` | 집계 OUTPUT → dataclass |
-| 9 | `multiple_resultset` | 여러 SELECT → nextset() · DataFrame |
-| 10 | `cte_ranking` | CTE · ROW_NUMBER · Top-N |
+(패턴 표는 이전 버전과 동일: simple_select, transaction, temp_table, … cte_ranking 등.)
 
 ---
 
-## 모델별 특징 및 선택 가이드
-
-| 모델 | 파라미터 | VRAM (4bit) | 속도 | 코드 품질 | 비용 |
-|---|---|---|---|---|---|
-| **Gemma 3 12B** | 12B | ~8GB | 중간 | 좋음 | 무료 |
-| **Qwen2.5-Coder 14B** | 14B | ~10GB | 중간 | 매우 좋음 | 무료 |
-| **GLM-4.5-Air 12B** | 12B | ~8GB | 빠름 | 좋음 | 무료 |
-| ~~GPT-4o~~ | - | 불필요 | 매우 빠름 | 최고 | 유료 |
-
-> **추천**: Qwen2.5-Coder는 코드 특화 모델이라 SQL→Python 변환에 유리합니다.
-
----
-
-## 품질 점수 기준 (comparator.py)
+## 품질 점수 (`comparator.py`)
 
 | 항목 | 점수 |
-|---|---|
-| 구문 유효 (AST parse 통과) | +30점 |
-| 파라미터 바인딩 (`?` 플레이스홀더) | +20점 |
-| 타입힌트 포함 | +15점 |
-| 에러 처리 (try/except) | +15점 |
-| docstring 포함 | +10점 |
-| Context Manager (with conn) | +10점 |
-| **합계** | **100점** |
+|------|------|
+| 구문 유효 (AST) | +30 |
+| 파라미터 바인딩 (`?`) | +20 |
+| 타입힌트 | +15 |
+| 에러 처리 | +15 |
+| docstring | +10 |
+| Context Manager (`with`) | +10 |
+| **합계** | **100** |
 
 ---
 
-## 예제 입력 SQL (`examples/sql/`)
+## 예제 SQL (`examples/sql/`)
 
-BookStore DB 스크립트:
+BookStore용 `usp_*.sql` 샘플(수정·추가·삭제·연결 등)을 둡니다.
 
-| 파일명 | 내용 |
-|---|---|
-| `usp_modified_book_storebook.sql` | 도서 정보 수정 + OUTPUT |
-| `usp_add_authorbook_storebook.sql` | 저자-도서 연결 INSERT + OUTPUT |
-| `usp_modified_author_storebook.sql` | 저자 정보 수정 + OUTPUT |
-| `usp_delete_book_storebook.sql` | 관련 행 삭제 + 트랜잭션 |
+---
+
+## 수정·정리 요약 (코드베이스 기준)
+
+| 구분 | 내용 |
+|------|------|
+| **신규** | `converters/ollama_converter.py` — Ollama 단일 경로로 3모델 추론 |
+| **수정** | `config.yaml` — `gemma` / `qwen` / `glm` / `ollama.host` |
+| **수정** | `main.py` — `_make_converter` → `OllamaConverter`만 사용, 3-way 비교 |
+| **삭제 가능** | `gemma_converter.py`, `qwen_converter.py`, `glm_converter.py` (HF 방식, 현재 미사용) |
 
 ---
 
 ## 라이선스
 
 MIT
-```
-
----
-
-## 주요 변경 사항
-```
-① 제목/설명  →  GPT → Gemma/Qwen/GLM 3개 모델로 변경
-② 설치/환경  →  OpenAI 키 제거, HF_TOKEN만 필요
-③ 사용법     →  --num-examples 옵션 예시 추가
-               GPT 관련 명령어 제거
-               --include-zero-shot 제거
-④ 워크플로우 →  퓨샷 3/5/10개 선택 가이드 추가
-⑤ 구조      →  qwen_converter, glm_converter 추가
-               gpt_converter 비활성화 표시
-⑥ 실행 흐름 →  3-way 비교 + unload_model() 흐름 추가
-               배치 흐름 추가
-⑦ 모델 비교 →  Gemma/Qwen/GLM 특징 표 추가
-⑧ 품질 점수 →  채점 기준 표 추가

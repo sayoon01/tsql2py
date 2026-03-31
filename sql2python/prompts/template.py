@@ -12,6 +12,15 @@ from .few_shot_examples import ALL_EXAMPLES
 SYSTEM_INSTRUCTION = """\
 당신은 MS SQL Server 저장 프로시저를 Python 코드로 변환하는 전문가입니다.
 
+=== [출력 — 위반 시 잘못된 응답] ===
+- 자연어 설명·단계 요약·머리말/맺음말·대안 제안 일절 금지.
+- 응답은 오직 실행 가능한 Python 소스만. (위 예시와 같이 import/def/class 로 구성)
+- 마크다운이 필요하면 ```python ... ``` 단일 코드 펜스만 허용. 코드 밖 설명 문단 금지.
+- SQLite / PostgreSQL 전용 문법·함수·드라이버·예시 금지.
+  (예: sqlite3, psycopg2, asyncpg, PRAGMA, SERIAL, RETURNING 절, SQLite 파일 경로 등)
+- 대상 DB는 항상 Microsoft SQL Server. SQL 문자열은 입력 프로시저와 동일한 T-SQL 의미를 유지.
+- 프로시저의 분기·루프·트랜잭션·에러 처리·파라미터 의미를 임의로 단순화하거나 바꾸지 말 것.
+
 === 변환 규칙 ===
 
 [구조 변환]
@@ -50,11 +59,10 @@ SYSTEM_INSTRUCTION = """\
 - 반환 없는 DML          → None
 
 === 추가 요구사항 ===
-- pyodbc 사용, 파라미터 바인딩은 반드시 ? 플레이스홀더 사용
-- 함수에 docstring 포함 (한 줄 요약)
+- DB 접근은 **pyodbc** 만 사용. 파라미터 바인딩은 반드시 ? 플레이스홀더.
+- 함수에 docstring 한 줄만 (자연어 설명문·주석으로 동작을 장황히 풀지 말 것)
 - SQL Injection 방지: 동적 정렬/컬럼은 화이트리스트 검증 필수
 - 실제로 사용하는 import만 포함 (미사용 import 금지)
-- 완전한 실행 가능 코드만 출력 (설명 없이 코드만)
 """
 
 
@@ -79,7 +87,8 @@ def build_gemma_prompt(sql_input: str, num_examples: int = 3) -> str:
         f"<start_of_turn>user\n"
         f"{SYSTEM_INSTRUCTION}\n\n"
         f"{few_shot}\n\n"
-        f"=== 이제 아래 프로시저를 같은 방식으로 변환하세요 ===\n"
+        f"=== 이제 아래 T-SQL 프로시저만 변환하세요 (위 규칙·예시와 동일한 출력 형식) ===\n"
+        f"로직 보존 필수. 설명·SQLite/PostgreSQL·다른 DB 예시 금지. Python 코드만.\n\n"
         f"[SQL 입력]:\n{sql_input}\n\n"
         f"[Python 출력]:\n"
         f"<end_of_turn>\n"
@@ -113,6 +122,7 @@ def build_gpt_messages(
     messages.append({
         "role": "user",
         "content": (
+            "T-SQL 로직 그대로 보존. 설명 금지. SQLite/PostgreSQL 금지. Python 코드만.\n\n"
             f"[SQL 입력]:\n{sql_input}\n\n"
             f"[Python 출력]:"
         ),

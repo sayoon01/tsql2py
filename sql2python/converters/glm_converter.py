@@ -1,6 +1,12 @@
 """
-GLM-4.5-Air 기반 SQL → Python 변환기
-HuggingFace Transformers 로컬 GPU 실행.
+GLM-4.5-Air 기반 SQL → Python 변환기 (레거시)
+
+HuggingFace Transformers 로컬 GPU 경로. 현재 CLI(main.py)는 사용하지 않으며
+추론은 ollama_converter + config.yaml 의 glm.model_name
+(예: Ollama `glm-4.7-flash:Q4_K_M`)만 호출합니다.
+
+HF 기본 체크포인트: zai-org/GLM-4.5-Air
+https://huggingface.co/zai-org/GLM-4.5-Air
 """
 from __future__ import annotations
 
@@ -20,7 +26,7 @@ class GLMConverter:
 
     def __init__(
         self,
-        model_name: str = "THUDM/GLM-4.5-Air-12B",
+        model_name: str = "zai-org/GLM-4.5-Air",
         load_in_4bit: bool = True,
         load_in_8bit: bool = False,
         device_map: str = "cuda:0",

@@ -11,7 +11,6 @@ from pathlib import Path
 
 from openai import OpenAI
 
-from prompts.post_process import fix_gpt_patterns, fix_missing_imports
 from prompts.template import build_gpt_messages
 
 
@@ -62,8 +61,6 @@ class GPTConverter:
 
         raw_text = response.choices[0].message.content or ""
         python_code = self._extract_code(raw_text)
-        python_code = fix_gpt_patterns(python_code)
-        python_code = fix_missing_imports(python_code)
 
         usage = response.usage
         input_tokens = usage.prompt_tokens if usage else 0

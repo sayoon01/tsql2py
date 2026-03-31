@@ -1,48 +1,32 @@
 # ============================================================
-#  SQL → Python 변환기 설정
+#  SQL → Python 변환기 — Ollama 전용
 # ============================================================
+#
+# model_name 은 Hugging Face ID(예: Qwen/Qwen2.5-...)가 아니라
+# `ollama list` 에 보이는 이름과 동일해야 합니다.
+#   → 예: ollama pull qwen2.5-coder:14b
 
 gemma:
-  model_name: "google/gemma-3-12b-it"
-  load_in_4bit: true
-  load_in_8bit: false
+  model_name: "gemma3:12b"
   temperature: 0.15
   top_p: 0.9
   max_new_tokens: 4096
   repetition_penalty: 1.1
 
 qwen:
-  model_name: "Qwen/Qwen2.5-Coder-14B-Instruct"
-  load_in_4bit: true
-  load_in_8bit: false
+  # HF 의 Qwen2.5-Coder-14B 와 대응되는 Ollama 라이브러리 태그 (환경에 맞게 조정)
+  model_name: "qwen2.5-coder:14b"
   temperature: 0.15
   top_p: 0.9
   max_new_tokens: 4096
   repetition_penalty: 1.1
 
 glm:
-  model_name: "THUDM/GLM-4.5-Air-12B"
-  load_in_4bit: true
-  load_in_8bit: false
+  model_name: "glm-4.7-flash:Q4_K_M"
   temperature: 0.15
   top_p: 0.9
   max_new_tokens: 4096
   repetition_penalty: 1.1
 
-# gpt:                        # GPT 비활성화
-#   model_name: "gpt-4o"
-#   temperature: 0.15
-#   top_p: 0.9
-#   max_tokens: 4096
-
-# 아래 설정은 현재 미사용 (추후 기능 추가 시 활성화)
-# few_shot:
-#   num_examples: 3
-#   python_style: "pyodbc"
-#   include_type_hints: true
-#   include_docstring: true
-
-# output:
-#   dir: "./output"
-#   add_comments: true
-#   format_with_black: true
+ollama:
+  host: "http://localhost:11434"
