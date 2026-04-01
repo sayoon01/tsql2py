@@ -21,5 +21,9 @@ click>=8.1.0
 python-dotenv>=1.0.0
 requests>=2.31.0
 
+# ── comparator 시각화 ──
+matplotlib>=3.8.0
+numpy>=1.26.0
+
 # ── GPT 비활성화 (필요 시 주석 해제) ──
 # openai>=1.30.0

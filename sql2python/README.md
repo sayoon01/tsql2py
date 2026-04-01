@@ -1,7 +1,7 @@
 # SQL2Python
 
 MS SQL Server 저장 프로시저를 Python 코드로 변환하는 CLI 도구입니다.  
-**Ollama**로 `config.yaml`에 지정한 세 태그(기본 예: `gemma3:12b`, `qwen3:14b`, community GLM 등)를 같은 퓨샷 조건에서 **3-way 비교**합니다.
+**Ollama**로 `config.yaml`의 세 `model_name`(예: `gemma3:12b`, `qwen2.5-coder:14b`, `glm-4.7-flash:Q4_K_M` 등)을 같은 퓨샷 조건에서 **3-way 비교**합니다.
 
 ---
 
@@ -20,14 +20,16 @@ pip install -r requirements.txt
 
 ```bash
 ollama pull gemma3:12b
-ollama pull qwen3:14b
-ollama pull glm-4.7-flash:Q4_K_M   # 위 YAML glm.model_name 과 동일 문자열
+ollama pull qwen2.5-coder:14b      # config.yaml qwen.model_name 과 동일
+ollama pull glm-4.7-flash:Q4_K_M   # config.yaml glm.model_name 과 동일
 ```
 
 설치 후 **`ollama list`에 표시된 문자열**이 `config.yaml`의 `gemma` / `qwen` / `glm` 의 `model_name` 과 **한 글자도 다르면 안 됩니다.**  
 양자화 태그(`:Q4_K_M` 등)를 쓰는 변형은 **이름이 다른 모델**이므로, pull한 태그와 YAML을 함께 맞추세요.
 
 서버 주소를 바꾸려면 `config.yaml`의 `ollama.host`를 수정합니다.
+
+`requirements.txt` 에 **Comparator 차트**용 `matplotlib`, `numpy` 가 포함되어 있습니다 (`compare` / `batch` 실행 시 모듈 로드에 사용).
 
 > **GPT(OpenAI)** 는 기본 비활성입니다. 쓰려면 `config.yaml`에서 `gpt:` 블록 주석을 해제하고 `OPENAI_API_KEY`를 설정한 뒤, `converters/gpt_converter.py` 및 `main.py`를 GPT 경로에 맞게 연결해야 합니다. 현재 CLI는 **Ollama 전용**입니다.
 
@@ -45,15 +47,29 @@ python main.py convert --backend gemma \
   --input examples/sql/usp_add_authorbook_storebook.sql \
   --num-examples 10
 
-# 3-way 비교 (Gemma vs Qwen vs GLM, 동일 퓨샷 개수 — 태그는 config.yaml 참고)
+# 3-way 비교 (Gemma vs Qwen vs GLM, 동일 퓨샷 개수)
 python main.py compare \
   --input examples/sql/usp_add_authorbook_storebook.sql \
   --num-examples 10
+
+# 비교 + 리포트 차트 PNG (--plots 시 output-dir/report/ 에 저장)
+python main.py compare \
+  --input examples/sql/usp_add_authorbook_storebook.sql \
+  --output-dir output \
+  --num-examples 10 \
+  --plots
 
 # 배치: 디렉터리 내 *.sql 전부 변환 + 파일마다 3-way 비교
 python main.py batch \
   --input-dir examples/sql/ \
   --num-examples 10
+
+# 배치 + 차트
+python main.py batch \
+  --input-dir examples/sql/ \
+  --output-dir output \
+  --num-examples 10 \
+  --plots
 
 # 프롬프트만 미리보기 (모델 호출 없음)
 python main.py preview \
@@ -128,11 +144,11 @@ sql2python/
 
 | 파일 | 역할 |
 |------|------|
-| **main.py** | `OllamaConverter`로 gemma/qwen/glm 백엔드 순차 호출, 리포트 저장 |
+| **main.py** | `OllamaConverter`로 gemma/qwen/glm 순차 호출, `Comparator.generate_report`, `--plots` 시 차트 |
 | **config.yaml** | 각 백엔드별 `model_name`, temperature, top_p, `max_new_tokens` 등 |
-| **ollama_converter.py** | `build_gemma_prompt` + Ollama `/api/generate` 호출, 코드 블록 추출 |
-| **comparator.py** | AST·휴리스틱 기반 품질 점수, JSON 리포트 |
-| **gemma / qwen / glm_converter.py** | 예전 HF 파이프라인; **삭제 후보**(저장소 정리 시). `main.py`는 import하지 않음 |
+| **ollama_converter.py** | `build_gemma_prompt` + Ollama 스트림/폴백, `post_process_python`, 구문 오류 시 재시도 |
+| **comparator.py** | 품질 점수·winner·`comparison_report.json` / `batch_report.json`, 선택 시 `report/*.png` |
+| **gemma / qwen / glm_converter.py** | 예전 HF 파이프라인; **삭제 후보**. `main.py`는 사용하지 않음 |
 
 ---
 
@@ -142,7 +158,66 @@ sql2python/
 `config.yaml` 로드 → 선택 백엔드의 `model_name`으로 `OllamaConverter` → `template.SYSTEM_INSTRUCTION` + 퓨샷 N개로 프롬프트 구성 → 응답에서 Python 추출 → `post_process_python` → `output/`
 
 **compare / batch**  
-각 파일에 대해 `gemma` → `qwen` → `glm` 순으로 같은 `num_examples`로 변환 → 콘솔 표 + `comparison_report.json` 또는 `batch_report.json`
+각 파일에 대해 `gemma` → `qwen` → `glm` 순으로 같은 `num_examples`로 변환 → 콘솔 표 + JSON 리포트.  
+`--plots` 이면 `output-dir/report/`에 `overall.png`, `metrics.png`, `scatter.png`, `table.png` 추가.
+
+---
+
+## Comparator 사용법 (`converters/comparator.py`)
+
+변환 직후 나오는 **Ollama 결과 dict**(`python_code`, `elapsed_sec`, `output_tokens`, `model` 등)를 묶어 점수·승자·리포트·(선택) 차트를 냅니다.
+
+### CLI에서 (권장)
+
+- **`compare`**: `--output-dir` 아래 `comparison_report.json`. **`--plots`** 이면 **같은 디렉터리의 `report/`** 에 PNG 네 장 (`overall`, `metrics`, `scatter`, `table`).
+- **`batch`**: `batch_report.json` 과 동일 규칙 (`<output-dir>/report/`).
+
+### JSON에 넣는 데이터 형식 (`batch_results` 등)
+
+`main.py`의 `batch`가 쌓는 리스트와 **같은 형태**이면 됩니다.
+
+```python
+batch_results = [
+    {
+        "file": "usp_add_authorbook_storebook.sql",
+        "gemma": { "python_code": "...", "elapsed_sec": 1.2, "output_tokens": 100, "model": "gemma3:12b" },
+        "qwen":  { "python_code": "...", "elapsed_sec": 1.0, "output_tokens": 95,  "model": "qwen2.5-coder:14b" },
+        "glm":   { "python_code": "...", "elapsed_sec": 2.0, "output_tokens": 200, "model": "glm-4.7-flash:Q4_K_M" },
+    },
+    # ... 다른 SQL 파일
+]
+```
+
+`file`은 표시용 이름이며, `gemma` / `qwen` / `glm` 값은 **`OllamaConverter.convert()` 또는 `convert_file()` 반환 dict**를 그대로 넣으면 됩니다.
+
+### Python에서 직접 호출
+
+```python
+from pathlib import Path
+from converters.comparator import Comparator
+
+comp = Comparator()
+
+# (1) dict 리스트 → ComparisonResult 로 정규화 후 점수만 JSON
+normalized = Comparator._normalize_results(batch_results)
+comp.save_json(normalized, Path("report/result.json"))
+
+# (2) 요약 + 막대/지표/산점도/표 PNG
+comp.plot_all(normalized, outdir="report")
+
+# (3) main과 동일한 통합 리포트 (summary + details) + 선택적 차트
+comp.generate_report(
+    batch_results,
+    Path("output/batch_report.json"),
+    with_plots=True,  # True면 output/batch_report.json 기준 → output/report/*.png
+)
+```
+
+- **`compare()`**: 한 건 비교. 인자는 `gemma_result=`, `qwen_result=`, `glm_result=` 에 각 백엔드의 변환 dict.
+- **`build_summary()`**: `list[ComparisonResult]` → 모델별 평균 점수·시간·토큰·승률 등.
+- **`save_json()`**: `ComparisonResult` 리스트만 직렬화 (파일별 점수·winner).
+
+의존성: 차트를 쓰려면 `matplotlib`, `numpy`가 필요합니다 (`requirements.txt`에 포함).
 
 ---
 
@@ -192,10 +267,11 @@ BookStore용 `usp_*.sql` 샘플(수정·추가·삭제·연결 등)을 둡니다
 
 | 구분 | 내용 |
 |------|------|
-| **신규** | `converters/ollama_converter.py` — Ollama 단일 경로로 3모델 추론 |
+| **신규** | `ollama_converter.py` — Ollama 단일 경로, 후처리·재시도 |
+| **신규** | `comparator.py` — 점수·winner·JSON·matplotlib 차트, `generate_report(..., with_plots=)` |
 | **수정** | `config.yaml` — `gemma` / `qwen` / `glm` / `ollama.host` |
-| **수정** | `main.py` — `_make_converter` → `OllamaConverter`만 사용, 3-way 비교 |
-| **삭제 가능** | `gemma_converter.py`, `qwen_converter.py`, `glm_converter.py` (HF 방식, 현재 미사용) |
+| **수정** | `main.py` — `compare` / `batch` 에 `--plots` 옵션 |
+| **삭제 가능** | `gemma_converter.py`, `qwen_converter.py`, `glm_converter.py` (HF, 미사용) |
 
 ---
 

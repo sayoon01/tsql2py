@@ -51,3 +51,5 @@ def _load_examples() -> list[dict]:
 
 
 ALL_EXAMPLES: list[dict] = _load_examples()
+# CLI 기본 퓨샷 개수(few_shot_examples.yaml 의 examples 전체 길이)
+FEW_SHOT_COUNT: int = len(ALL_EXAMPLES)

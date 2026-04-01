@@ -31,10 +31,27 @@ except Exception:
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from prompts.few_shot_examples import ALL_EXAMPLES, FEW_SHOT_COUNT
 from prompts.template import build_gemma_prompt
 from converters.comparator import Comparator
 
 console = Console()
+
+
+def _clamp_num_examples(n: int) -> int:
+    """퓨샷 개수를 0..len(ALL_EXAMPLES) 으로 제한 (목록이 비면 0)."""
+    m = len(ALL_EXAMPLES)
+    if m == 0:
+        return 0
+    return max(1, min(int(n), m))
+
+
+_NUM_EXAMPLES_HELP = (
+    "퓨샷 예시 수 (few_shot_examples.yaml 전체 사용이 기본; "
+    f"1~{FEW_SHOT_COUNT} 로 줄일 수 있음)"
+    if FEW_SHOT_COUNT > 0
+    else "퓨샷 예시 수 (examples 가 비어 있으면 0)"
+)
 
 
 def load_config(path: str = "config.yaml") -> dict:
@@ -79,10 +96,17 @@ def cli():
 )
 @click.option("--input", "input_path", required=True, help="SQL 파일 경로")
 @click.option("--output-dir", default="./output", help="출력 디렉토리")
-@click.option("--num-examples", default=3, help="퓨샷 예시 수 (1~10)")
+@click.option(
+    "--num-examples",
+    default=FEW_SHOT_COUNT,
+    type=int,
+    show_default=True,
+    help=_NUM_EXAMPLES_HELP,
+)
 @click.option("--config", "config_path", default="config.yaml")
 def convert(backend, input_path, output_dir, num_examples, config_path):
     """SQL 파일을 Python으로 변환합니다."""
+    num_examples = _clamp_num_examples(num_examples)
     cfg = load_config(config_path)
     sql_path = Path(input_path)
 
@@ -127,10 +151,18 @@ def convert(backend, input_path, output_dir, num_examples, config_path):
 @cli.command()
 @click.option("--input", "input_path", required=True, help="SQL 파일 경로")
 @click.option("--output-dir", default="./output", help="출력 디렉토리")
-@click.option("--num-examples", default=3, help="퓨샷 예시 수")
+@click.option(
+    "--num-examples",
+    default=FEW_SHOT_COUNT,
+    type=int,
+    show_default=True,
+    help=_NUM_EXAMPLES_HELP,
+)
 @click.option("--config", "config_path", default="config.yaml")
-def compare(input_path, output_dir, num_examples, config_path):
+@click.option("--plots/--no-plots", default=False, help="output-dir/report 에 비교 차트 PNG 저장")
+def compare(input_path, output_dir, num_examples, config_path, plots):
     """gemma / qwen / glm Ollama 백엔드 3-way 비교."""
+    num_examples = _clamp_num_examples(num_examples)
     cfg = load_config(config_path)
     sql_path = Path(input_path)
 
@@ -175,7 +207,8 @@ def compare(input_path, output_dir, num_examples, config_path):
           "gemma": results["gemma"],
           "qwen":  results["qwen"],
           "glm":   results["glm"]}],
-        Path(output_dir) / "comparison_report.json"
+        Path(output_dir) / "comparison_report.json",
+        with_plots=plots,
     )
     console.print(f"\n[dim]리포트 저장: {report_path}[/dim]")
 
@@ -184,10 +217,18 @@ def compare(input_path, output_dir, num_examples, config_path):
 @cli.command()
 @click.option("--input-dir", required=True, help="SQL 파일 디렉토리")
 @click.option("--output-dir", default="./output", help="출력 디렉토리")
-@click.option("--num-examples", default=3)
+@click.option(
+    "--num-examples",
+    default=FEW_SHOT_COUNT,
+    type=int,
+    show_default=True,
+    help=_NUM_EXAMPLES_HELP,
+)
 @click.option("--config", "config_path", default="config.yaml")
-def batch(input_dir, output_dir, num_examples, config_path):
+@click.option("--plots/--no-plots", default=False, help="output-dir/report 에 배치 비교 차트 PNG 저장")
+def batch(input_dir, output_dir, num_examples, config_path, plots):
     """폴더 내 전체 SQL을 일괄 변환하고 3-way 비교합니다."""
+    num_examples = _clamp_num_examples(num_examples)
     cfg = load_config(config_path)
     sql_dir = Path(input_dir)
     sql_files = sorted(sql_dir.glob("*.sql"))
@@ -242,7 +283,8 @@ def batch(input_dir, output_dir, num_examples, config_path):
     comp = Comparator()
     report_path = comp.generate_report(
         all_results,
-        Path(output_dir) / "batch_report.json"
+        Path(output_dir) / "batch_report.json",
+        with_plots=plots,
     )
     console.print(f"\n[dim]리포트: {report_path}[/dim]")
 
@@ -255,10 +297,17 @@ def batch(input_dir, output_dir, num_examples, config_path):
     type=click.Choice(["gemma", "qwen", "glm"]),
     default="gemma"
 )
-@click.option("--num-examples", default=3)
+@click.option(
+    "--num-examples",
+    default=FEW_SHOT_COUNT,
+    type=int,
+    show_default=True,
+    help=_NUM_EXAMPLES_HELP,
+)
 @click.option("--config", "config_path", default="config.yaml")
 def preview(input_path, backend, num_examples, config_path):
     """생성될 프롬프트를 미리봅니다 (모델 호출 없이)."""
+    num_examples = _clamp_num_examples(num_examples)
     cfg = load_config(config_path)
     sql_code = Path(input_path).read_text(encoding="utf-8")
     prompt = build_gemma_prompt(sql_code, num_examples=num_examples)

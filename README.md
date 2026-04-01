@@ -17,5 +17,8 @@ pip install -r requirements.txt
 
 python main.py compare \
   --input examples/sql/usp_add_authorbook_storebook.sql \
-  --num-examples 10
+  --num-examples 11 \
+  --plots   # 선택: output/report/ 에 품질·시간 비교 PNG 저장 (matplotlib 필요)
 ```
+
+프롬프트·퓨샷·후처리·**Comparator(점수·JSON·차트)** 는 [`sql2python/README.md`](sql2python/README.md) 를 참고하세요.
