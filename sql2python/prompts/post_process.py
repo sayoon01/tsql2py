@@ -10,7 +10,22 @@
 파이프라인 진입점은 ``post_process_python``.
 """
 
+import ast
 import re
+
+
+def validate_syntax(code: str) -> tuple[bool, str | None]:
+    """Python 구문이면 (True, None), 아니면 (False, 오류 메시지)."""
+    stripped = code.strip()
+    if not stripped:
+        return False, "empty code"
+    try:
+        ast.parse(stripped)
+        return True, None
+    except SyntaxError as e:
+        where = f"line {e.lineno}" if e.lineno is not None else "syntax error"
+        msg = e.msg or str(e)
+        return False, f"{where}: {msg}"
 
 
 def fix_misleading_error_messages(code: str) -> str:
