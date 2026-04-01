@@ -14,7 +14,7 @@ from pathlib import Path
 import requests
 
 from prompts.template import build_gemma_prompt
-from prompts.post_process import fix_missing_imports
+from prompts.post_process import post_process_python
 
 
 def _parse_ollama_stream_line(line: object) -> dict | None:
@@ -165,7 +165,7 @@ class OllamaConverter:
 
         elapsed = time.perf_counter() - t0
         python_code = self._extract_code(raw_text)
-        python_code = fix_missing_imports(python_code)
+        python_code = post_process_python(python_code)
 
         # 출력 토큰: Ollama eval_count 가 있으면 우선, 없으면 공백 기준 단어 수(대략)
         wordish = len(raw_text.split()) if raw_text.strip() else 0

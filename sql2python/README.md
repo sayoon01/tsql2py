@@ -73,7 +73,31 @@ python main.py preview \
 |------------------|------|
 | 3 | 빠른 테스트, 토큰 절약 |
 | 5 | 균형 |
-| 10 | 예시 풀 전부 사용 (`few_shot_examples.py`의 `ALL_EXAMPLES` 앞에서 N개) |
+| 목록 길이까지 | 예시 풀 전부 (`few_shot_examples.yaml` → `ALL_EXAMPLES` 앞에서 N개; 현재 11개) |
+
+---
+
+## 프롬프트·퓨샷·후처리 역할
+
+변환 품질은 세 겹으로 나뉩니다. 서로 역할이 다르며, **퓨샷과 시스템 지침이 완전히 같은 문장일 필요는 없고**, 모순만 없으면 됩니다.
+
+### `template.py` — `SYSTEM_INSTRUCTION`
+
+- 모델에게 **“어떻게 변환해야 하는지”** 를 가르치는 **범용 규칙** 모음입니다.
+- T-SQL → Python 대응, 출력 형식(코드만), pyodbc·금지 DB, 트랜잭션·DML 처리 원칙 등 **모든 SQL 패턴에 공통으로 적용**되는 원칙을 둡니다.
+- **퓨샷 예시 YAML과 논리적으로 모순되지 않으면 충분**합니다. 예시와 글자 수까지 맞출 필요는 없습니다.
+
+### 퓨샷 예시 — `prompts/few_shot_examples.yaml`
+
+- 모델에게 **“이런 스타일·구조로 써라”** 를 **구체적으로 보여줍니다** (`tag`, `sql`, `python`).
+- **패턴 다양성**이 핵심입니다. (단순 조회, DML+커밋, 트랜잭 분기, 동적 SQL, MERGE, 소프트 삭제 등)
+- **스타일**(pyodbc, `?` 바인딩, dataclass 반환, 에러 처리 톤 등)은 일관되게, **도메인**(테이블·업무 시나리오)은 서로 다르게 두는 것이 좋습니다.
+
+### `post_process.py`
+
+- 모델이 낸 코드에서 **명백히 잘못된 Python 관용구·누락**만 짧게 고칩니다.
+- **SQL 의미·프로시저 구조**는 후처리로 바꾸지 않습니다.
+- 입력 SQL별 특수 케이스가 아니라, **여러 변환에 공통으로 쓸 수 있는 교정**만 유지합니다.
 
 ---
 
@@ -85,7 +109,8 @@ sql2python/
 ├── config.yaml                 # Ollama 모델명·생성 파라미터·ollama.host
 ├── requirements.txt
 ├── prompts/
-│   ├── few_shot_examples.py   # 퓨샷 10종 (ALL_EXAMPLES)
+│   ├── few_shot_examples.yaml # 퓨샷 SQL/파이썬 쌍 (examples 리스트)
+│   ├── few_shot_examples.py   # 위 YAML 로드 → ALL_EXAMPLES
 │   ├── template.py            # 프롬프트 빌더 (백엔드 공통 텍스트 프롬프트)
 │   └── post_process.py        # 생성 코드 후처리
 ├── converters/
@@ -114,18 +139,32 @@ sql2python/
 ## 실행 흐름 (요약)
 
 **convert**  
-`config.yaml` 로드 → 선택 백엔드의 `model_name`으로 `OllamaConverter` → 퓨샷 N개 포함 프롬프트 → 응답에서 Python 추출 → `post_process` → `output/`
+`config.yaml` 로드 → 선택 백엔드의 `model_name`으로 `OllamaConverter` → `template.SYSTEM_INSTRUCTION` + 퓨샷 N개로 프롬프트 구성 → 응답에서 Python 추출 → `post_process_python` → `output/`
 
 **compare / batch**  
 각 파일에 대해 `gemma` → `qwen` → `glm` 순으로 같은 `num_examples`로 변환 → 콘솔 표 + `comparison_report.json` 또는 `batch_report.json`
 
 ---
 
-## 퓨샷 예시 (`prompts/few_shot_examples.py`)
+## 퓨샷 예시 (`prompts/few_shot_examples.yaml`)
 
-`ALL_EXAMPLES`에 **10종** SQL→Python 쌍이 있으며, `--num-examples`(1~10)만큼 **앞에서부터** 프롬프트에 넣습니다.
+`few_shot_examples.py`가 시작 시 YAML을 읽어 `ALL_EXAMPLES`를 만듭니다. 키 `examples` 아래에 `tag`, `sql`, `python`이 있는 객체를 **순서대로** 넣습니다. `--num-examples`는 **1 ~ 목록 길이**까지, 앞에서부터 잘라 프롬프트에 붙입니다.
 
-(패턴 표는 이전 버전과 동일: simple_select, transaction, temp_table, … cte_ranking 등.)
+| `tag` | 패턴 요약 |
+|-------|-----------|
+| `simple_select` | 파라미터·TOP·SELECT |
+| `simple_dml_update` | 단일 UPDATE + commit/rollback 스타일 |
+| `transaction` | TRY/CATCH·트랜잭션·다문 DML |
+| `temp_table` | 임시 집계·일괄 UPDATE |
+| `dynamic_sql` | 검증·화이트리스트·페이징 |
+| `merge_upsert` | UPDATE 후 없으면 INSERT |
+| `soft_delete` | 논리 삭제·이력 |
+| `bulk_insert` | 다건·중복 제외 |
+| `scalar_aggregate` | OUTPUT/집계 한 덩어리 |
+| `multiple_resultset` | 연속 결과셋 |
+| `cte_ranking` | CTE·`ROW_NUMBER`·Top-N |
+
+새 예시를 넣을 때는 위 절(스타일 일관·도메인 다양)을 참고하면 됩니다.
 
 ---
 

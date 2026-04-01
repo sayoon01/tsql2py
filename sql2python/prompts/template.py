@@ -1,8 +1,8 @@
 """
 퓨샷 프롬프트 템플릿 빌더
-Gemma / GPT 각각에 맞는 프롬프트를 생성합니다.
+Gemma / Ollama 각각에 맞는 프롬프트를 생성합니다.
 
-few_shot_examples.ALL_EXAMPLES 의 앞쪽 num_examples 개만 사용 (1~10).
+few_shot_examples.ALL_EXAMPLES(YAML 로드)의 앞쪽 num_examples 개만 사용.
 """
 from __future__ import annotations
 
@@ -30,13 +30,21 @@ SYSTEM_INSTRUCTION = """\
 4. TRY...CATCH        → try...except (ValueError 와 Exception 구분)
 5. EXEC / sp_executesql → cursor.execute() (? 플레이스홀더 필수)
 6. OUTPUT 파라미터     → dataclass return 값
-7. BEGIN TRAN / COMMIT → conn.autocommit = False + conn.commit() / conn.rollback()
+7. 트랜잭션(pyodbc)
+   - 연 직후 `conn.autocommit = False` 설정.
+   - 원본에 BEGIN TRAN/COMMIT/ROLLBACK이 있으면 그 흐름에 맞춰 `conn.commit()` /
+     `conn.rollback()` 배치.
+   - 원본에 명시 트랜잭션이 없어도 INSERT/UPDATE/DELETE/MERGE 등 **쓰기 DML**이 있으면
+     반드시 성공 경로에서 `conn.commit()`, `except` 블록에서 `conn.rollback()` 호출
+     (pyodbc 기본은 autocommit=False라 생략 시 변경이 DB에 반영되지 않을 수 있음).
+   - SELECT 등 읽기만 수행하면 commit/rollback 생략 가능.
 8. MERGE              → SELECT 존재 여부 확인 후 INSERT or UPDATE
 9. SET NOCOUNT ON     → 생략
 10. @@ROWCOUNT        → cursor.rowcount
 
 [T-SQL 함수 변환]
-11. GETDATE()         → datetime.now()
+11. GETDATE()         → datetime.now() — SQL 문자열에 GETDATE() 남기지 말 것.
+                        ? 플레이스홀더로 전달하고 Python에서 datetime.now() 사용.
 12. ISNULL(a, b)      → a if a is not None else b
 13. COALESCE(a, b)    → a or b
 14. LEN()             → len()
@@ -51,18 +59,54 @@ SYSTEM_INSTRUCTION = """\
     → conn.autocommit = False 사용
 20. SCOPE_IDENTITY() 직접 조회 금지
     → cursor.lastrowid 사용
+21. cursor.messages, cursor.rownumber 사용 금지
+    → pyodbc에 존재하지 않는 속성. cursor.rowcount 사용.
 
-=== 반환 타입 기준 ===
-- SELECT 결과 (여러 행)  → pd.DataFrame
-- 단일 값 반환           → int / str / float 등 기본 타입
-- 성공/실패 + 부가 정보  → @dataclass
-- 반환 없는 DML          → None
+=== 반환 타입 기준 (반드시 준수) ===
+- SELECT 결과 (여러 행)          → pd.DataFrame
+- 단일 집계값                    → int / float 등 기본 타입
+- 쓰기 DML (INSERT/UPDATE/DELETE) → @dataclass (success: bool, error_message: str | None)
+- UPSERT                         → @dataclass (action: str, success: bool, error_message: str | None)
+- 대량 삽입 (bulk)               → @dataclass (inserted_count: int, success: bool, error_message: str | None)
+- 반환 없는 DML                  → None
 
 === 추가 요구사항 ===
 - DB 접근은 **pyodbc** 만 사용. 파라미터 바인딩은 반드시 ? 플레이스홀더.
+- 쓰기 DML이 하나라도 있으면 `commit`/`rollback` 누락 금지 (위 규칙 7).
 - 함수에 docstring 한 줄만 (자연어 설명문·주석으로 동작을 장황히 풀지 말 것)
 - SQL Injection 방지: 동적 정렬/컬럼은 화이트리스트 검증 필수
 - 실제로 사용하는 import만 포함 (미사용 import 금지)
+- 기본값 없는 파라미터는 기본값 있는 파라미터보다 반드시 앞에 위치
+  (Python 문법: non-default argument follows default argument 방지)
+
+=== 필수 출력 패턴 ===
+
+[쓰기 DML — INSERT/UPDATE/DELETE/MERGE 등]
+with pyodbc.connect(conn_str) as conn:
+    conn.autocommit = False
+    with closing(conn.cursor()) as cursor:
+        try:
+            cursor.execute(...)
+            conn.commit()
+            return XxxResult(success=True)
+        except Exception as e:
+            conn.rollback()
+            return XxxResult(success=False, error_message=str(e))
+
+[읽기 전용 — SELECT만]
+with pyodbc.connect(conn_str) as conn:
+    df = pd.read_sql(query, conn, params=[...])
+return df
+
+[커서]
+- `from contextlib import closing` 임포트 후
+  `with closing(conn.cursor()) as cursor:` 로 감쌀 것.
+- pd.read_sql만 사용하는 읽기 전용 함수는 생략 가능.
+
+[에러 메시지]
+- `str(e)` 또는 `f"{type(e).__name__}: {e}"` 사용.
+- `f"Line {e.__class__.__name__}: ..."` 형식 금지.
+  (T-SQL ERROR_LINE()은 소스 줄 번호이며 Python 예외 클래스명이 아님)
 """
 
 
@@ -79,16 +123,18 @@ def build_few_shot_section(num_examples: int = 3) -> str:
     return "\n\n".join(parts)
 
 
-# ─────────── Gemma 프롬프트 ───────────
+# ─────────── Gemma/Ollama 공통 프롬프트 ───────────
 def build_gemma_prompt(sql_input: str, num_examples: int = 3) -> str:
-    """Gemma 모델용 퓨샷 프롬프트를 생성합니다."""
+    """Gemma / Ollama 모델용 퓨샷 프롬프트를 생성합니다."""
     few_shot = build_few_shot_section(num_examples)
     return (
         f"<start_of_turn>user\n"
         f"{SYSTEM_INSTRUCTION}\n\n"
         f"{few_shot}\n\n"
         f"=== 이제 아래 T-SQL 프로시저만 변환하세요 (위 규칙·예시와 동일한 출력 형식) ===\n"
-        f"로직 보존 필수. 설명·SQLite/PostgreSQL·다른 DB 예시 금지. Python 코드만.\n\n"
+        f"로직 보존 필수. 설명·SQLite/PostgreSQL·다른 DB 예시 금지. Python 코드만.\n"
+        f"기본값 없는 파라미터는 기본값 있는 파라미터보다 반드시 앞에 위치할 것.\n"
+        f"GETDATE()는 SQL에 남기지 말고 datetime.now()로 변환할 것.\n\n"
         f"[SQL 입력]:\n{sql_input}\n\n"
         f"[Python 출력]:\n"
         f"<end_of_turn>\n"
@@ -96,7 +142,7 @@ def build_gemma_prompt(sql_input: str, num_examples: int = 3) -> str:
     )
 
 
-# ─────────── GPT 프롬프트 (messages 형식) ───────────
+# ─────────── GPT 프롬프트 (messages 형식, 비활성화) ───────────
 def build_gpt_messages(
     sql_input: str,
     num_examples: int = 3,
@@ -122,7 +168,9 @@ def build_gpt_messages(
     messages.append({
         "role": "user",
         "content": (
-            "T-SQL 로직 그대로 보존. 설명 금지. SQLite/PostgreSQL 금지. Python 코드만.\n\n"
+            "T-SQL 로직 그대로 보존. 설명 금지. SQLite/PostgreSQL 금지. Python 코드만.\n"
+            "기본값 없는 파라미터는 기본값 있는 파라미터보다 반드시 앞에 위치할 것.\n"
+            "GETDATE()는 SQL에 남기지 말고 datetime.now()로 변환할 것.\n\n"
             f"[SQL 입력]:\n{sql_input}\n\n"
             f"[Python 출력]:"
         ),
