@@ -76,6 +76,17 @@ python main.py preview \
   --input examples/sql/usp_add_authorbook_storebook.sql \
   --backend gemma \
   --num-examples 10
+
+# 변환된 Python 파일 코드 품질 분석 (모델 호출 없음)
+python main.py analyze \
+  --input output/usp_add_authorbook_storebook_gemma3_12b.py \
+  --model gemma3:12b
+
+# 원본 SQL 포함 시 함수명 보존 여부도 함께 확인
+python main.py analyze \
+  --input output/usp_add_authorbook_storebook_gemma3_12b.py \
+  --sql  examples/sql/usp_add_authorbook_storebook.sql \
+  --model gemma3:12b
 ```
 
 ---
@@ -83,13 +94,28 @@ python main.py preview \
 ## 추천 워크플로우
 
 1. **단일 파일** `compare`로 퓨샷 개수(예: 3 → 10)를 조절해 품질을 본 뒤  
-2. **`batch`** 로 같은 설정을 전체 SQL에 적용합니다.
+2. **`batch`** 로 같은 설정을 전체 SQL에 적용합니다.  
+3. 변환 후 **`analyze`** 로 저장된 Python 파일의 품질 점수를 재확인할 수 있습니다.
 
 | `--num-examples` | 용도 |
 |------------------|------|
 | 3 | 빠른 테스트, 토큰 절약 |
 | 5 | 균형 |
 | 목록 길이까지 | 예시 풀 전부 (`few_shot_examples.yaml` → `ALL_EXAMPLES` 앞에서 N개; 현재 11개) |
+
+### `analyze` 점수 기준
+
+| 검사 항목 | 배점 |
+|-----------|------|
+| Python 구문 유효 (AST 파싱) | +30 |
+| 파라미터화 쿼리 (`?` 바인딩) | +15 |
+| `try/except` 포함 | +10 |
+| `with pyodbc.connect(...)` | +10 |
+| `commit` 포함 | +10 |
+| `rollback` 포함 | +10 |
+| 플레이스홀더 개수 일치 | +10 |
+| 위험 패턴 없음 (`@@error`, `lastrowid` 등) | +5 |
+| **최대** | **100** |
 
 ---
 

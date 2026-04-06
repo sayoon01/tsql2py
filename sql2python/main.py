@@ -289,6 +289,69 @@ def batch(input_dir, output_dir, num_examples, config_path, plots):
     console.print(f"\n[dim]리포트: {report_path}[/dim]")
 
 
+# ─────────── analyze ───────────
+@cli.command()
+@click.option("--input", "input_path", required=True, help="분석할 Python 파일 경로")
+@click.option("--sql", "sql_path", default=None, help="원본 SQL 파일 경로 (함수명 보존 여부 확인용, 선택)")
+@click.option("--model", "model_label", default="unknown", show_default=True, help="출력에 표시할 모델 이름")
+def analyze(input_path, sql_path, model_label):
+    """변환된 Python 파일의 코드 품질을 분석합니다 (모델 호출 없이)."""
+    py_path = Path(input_path)
+    if not py_path.exists():
+        console.print(f"[red]파일을 찾을 수 없습니다: {py_path}[/red]")
+        return
+
+    code = py_path.read_text(encoding="utf-8")
+
+    comp = Comparator()
+    score = comp.analyze_code(
+        code,
+        model=model_label,
+        sql_file=sql_path or "",
+    )
+
+    console.print(Panel(
+        f"[bold]파일:[/bold] {py_path}\n"
+        f"[bold]모델:[/bold] {model_label}\n"
+        f"[bold]줄 수:[/bold] {score.line_count}",
+        title="코드 분석",
+    ))
+
+    table = Table(title=f"품질 점수: {score.execution_score} / 100")
+    table.add_column("검사 항목", style="cyan", width=30)
+    table.add_column("결과", justify="center", width=10)
+    table.add_column("배점", justify="right", width=8)
+
+    def _yn(ok: bool) -> str:
+        return "[green]✓[/green]" if ok else "[red]✗[/red]"
+
+    table.add_row("Python 구문 유효 (AST)",     _yn(score.syntax_valid),            "+30")
+    table.add_row("파라미터화 쿼리 (?)",          _yn(score.parameterized_query),     "+15")
+    table.add_row("try/except 포함",             _yn(score.has_try_except),          "+10")
+    table.add_row("with pyodbc.connect(...)",    _yn(score.has_with_connect),        "+10")
+    table.add_row("commit 포함",                 _yn(score.commit_present),          "+10")
+    table.add_row("rollback 포함",               _yn(score.rollback_present),        "+10")
+    table.add_row("플레이스홀더 개수 일치",        _yn(score.placeholder_match),       "+10")
+    table.add_row("위험 패턴 없음",               _yn(not score.dangerous_pattern_found), "+5")
+
+    if sql_path:
+        table.add_row("함수명 보존",              _yn(score.function_name_preserved),  "—")
+
+    console.print(table)
+
+    def _score_color(s: int) -> str:
+        if s >= 70:
+            return "green"
+        if s >= 40:
+            return "yellow"
+        return "red"
+
+    color = _score_color(score.execution_score)
+    console.print(
+        f"\n[bold]총점:[/bold] [{color}]{score.execution_score} / 100[/{color}]"
+    )
+
+
 # ─────────── preview ───────────
 @cli.command()
 @click.option("--input", "input_path", required=True, help="SQL 파일 경로")
