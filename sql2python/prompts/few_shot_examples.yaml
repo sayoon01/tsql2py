@@ -7,7 +7,6 @@ examples:
       AS
       BEGIN
           SET NOCOUNT ON;
-
           SELECT TOP(@MaxResults) UserID, UserName, Email, Age
           FROM Users
           WHERE IsActive = 1
@@ -47,7 +46,6 @@ examples:
       AS
       BEGIN
           SET NOCOUNT ON;
-
           UPDATE Books
           SET Title = @Title
           WHERE Isbn = @Isbn;
@@ -94,6 +92,222 @@ examples:
                           error_message=str(e),
                       )
 
+  - tag: nullable_param_reorder
+    sql: |
+      CREATE PROCEDURE dbo.UpdateAuthorInfo
+          @FirstName NVARCHAR(100),
+          @MiddleName NVARCHAR(100) = NULL,
+          @AuthorID INT,
+          @BirthYear INT = NULL
+      AS
+      BEGIN
+          UPDATE Authors
+          SET FirstName = @FirstName,
+              MiddleName = @MiddleName,
+              BirthYear = @BirthYear
+          WHERE AuthorID = @AuthorID;
+      END
+    python: |
+      import pyodbc
+      from dataclasses import dataclass
+
+
+      @dataclass
+      class UpdateAuthorInfoResult:
+          success: bool
+          error_message: str | None = None
+
+
+      def update_author_info(
+          conn_str: str,
+          first_name: str,
+          author_id: int,
+          middle_name: str | None = None,
+          birth_year: int | None = None,
+      ) -> UpdateAuthorInfoResult:
+          """중간 nullable 파라미터가 있어도 Python 인자 순서는 기본값 없는 것이 먼저입니다."""
+
+          with pyodbc.connect(conn_str) as conn:
+              conn.autocommit = False
+              cursor = conn.cursor()
+
+              try:
+                  cursor.execute(
+                      """
+                      UPDATE Authors
+                      SET FirstName = ?,
+                          MiddleName = ?,
+                          BirthYear = ?
+                      WHERE AuthorID = ?
+                      """,
+                      first_name,
+                      middle_name,
+                      birth_year,
+                      author_id,
+                  )
+                  conn.commit()
+                  return UpdateAuthorInfoResult(success=True)
+              except Exception as e:
+                  conn.rollback()
+                  return UpdateAuthorInfoResult(
+                      success=False,
+                      error_message=str(e),
+                  )
+
+  - tag: placeholder_strict_match
+    sql: |
+      CREATE PROCEDURE dbo.InsertBookEdition
+          @Isbn VARCHAR(20),
+          @Edition INT,
+          @PublishedYear INT
+      AS
+      BEGIN
+          INSERT INTO BookEditions (Isbn, Edition, PublishedYear)
+          VALUES (@Isbn, @Edition, @PublishedYear);
+      END
+    python: |
+      import pyodbc
+      from dataclasses import dataclass
+
+
+      @dataclass
+      class InsertBookEditionResult:
+          success: bool
+          error_message: str | None = None
+
+
+      def insert_book_edition(
+          conn_str: str,
+          isbn: str,
+          edition: int,
+          published_year: int,
+      ) -> InsertBookEditionResult:
+          """컬럼 순서 = placeholder 순서 = execute 인자 순서"""
+
+          with pyodbc.connect(conn_str) as conn:
+              conn.autocommit = False
+              cursor = conn.cursor()
+
+              try:
+                  cursor.execute(
+                      """
+                      INSERT INTO BookEditions (Isbn, Edition, PublishedYear)
+                      VALUES (?, ?, ?)
+                      """,
+                      isbn,
+                      edition,
+                      published_year,
+                  )
+                  conn.commit()
+                  return InsertBookEditionResult(success=True)
+              except Exception as e:
+                  conn.rollback()
+                  return InsertBookEditionResult(
+                      success=False,
+                      error_message=str(e),
+                  )
+
+  - tag: function_name_preserve
+    sql: |
+      CREATE PROCEDURE dbo.usp_sync_customer_grade
+          @CustomerID INT
+      AS
+      BEGIN
+          UPDATE Customers
+          SET Grade = 'VIP'
+          WHERE CustomerID = @CustomerID;
+      END
+    python: |
+      import pyodbc
+      from dataclasses import dataclass
+
+
+      @dataclass
+      class UspSyncCustomerGradeResult:
+          success: bool
+          error_message: str | None = None
+
+
+      def usp_sync_customer_grade(
+          conn_str: str,
+          customer_id: int,
+      ) -> UspSyncCustomerGradeResult:
+          """프로시저 이름은 Python 함수명에서도 유지합니다."""
+
+          with pyodbc.connect(conn_str) as conn:
+              conn.autocommit = False
+              cursor = conn.cursor()
+
+              try:
+                  cursor.execute(
+                      """
+                      UPDATE Customers
+                      SET Grade = 'VIP'
+                      WHERE CustomerID = ?
+                      """,
+                      customer_id,
+                  )
+                  conn.commit()
+                  return UspSyncCustomerGradeResult(success=True)
+              except Exception as e:
+                  conn.rollback()
+                  return UspSyncCustomerGradeResult(
+                      success=False,
+                      error_message=str(e),
+                  )
+
+  - tag: getdate_to_datetime_insert
+    sql: |
+      CREATE PROCEDURE dbo.InsertAuditLog
+          @UserID INT,
+          @ActionName NVARCHAR(100)
+      AS
+      BEGIN
+          INSERT INTO AuditLogs (UserID, ActionName, CreatedAt)
+          VALUES (@UserID, @ActionName, GETDATE());
+      END
+    python: |
+      import pyodbc
+      from datetime import datetime
+      from dataclasses import dataclass
+
+
+      @dataclass
+      class InsertAuditLogResult:
+          success: bool
+          error_message: str | None = None
+
+
+      def insert_audit_log(
+          conn_str: str,
+          user_id: int,
+          action_name: str,
+      ) -> InsertAuditLogResult:
+          """GETDATE()는 Python 예시에서는 datetime.now()로 전달합니다."""
+
+          with pyodbc.connect(conn_str) as conn:
+              conn.autocommit = False
+              cursor = conn.cursor()
+
+              try:
+                  cursor.execute(
+                      """
+                      INSERT INTO AuditLogs (UserID, ActionName, CreatedAt)
+                      VALUES (?, ?, ?)
+                      """,
+                      user_id,
+                      action_name,
+                      datetime.now(),
+                  )
+                  conn.commit()
+                  return InsertAuditLogResult(success=True)
+              except Exception as e:
+                  conn.rollback()
+                  return InsertAuditLogResult(
+                      success=False,
+                      error_message=str(e),
+                  )
+
   - tag: transaction_fixed_datetime
     sql: |
       CREATE PROCEDURE UpdateOrderStatus
@@ -104,40 +318,31 @@ examples:
       AS
       BEGIN
           SET NOCOUNT ON;
-
           DECLARE @OldStatus NVARCHAR(50);
-
           BEGIN TRY
               BEGIN TRANSACTION;
-
               SELECT @OldStatus = Status
               FROM Orders
               WHERE OrderID = @OrderID;
-
               IF @OldStatus IS NULL
               BEGIN
                   RAISERROR(N'해당 OrderID의 주문이 존재하지 않습니다.', 16, 1);
               END
-
               UPDATE Orders
               SET Status = @NewStatus,
                   ModifiedBy = @UpdatedBy,
                   ModifiedDate = GETDATE()
               WHERE OrderID = @OrderID;
-
               SET @UpdatedCount = @@ROWCOUNT;
-
               INSERT INTO OrderAuditLog
                   (OrderID, OldStatus, NewStatus, ChangedBy, ChangedDate)
               VALUES
                   (@OrderID, @OldStatus, @NewStatus, @UpdatedBy, GETDATE());
-
               COMMIT TRANSACTION;
           END TRY
           BEGIN CATCH
               IF @@TRANCOUNT > 0
                   ROLLBACK TRANSACTION;
-
               DECLARE @ErrorMsg NVARCHAR(4000) = ERROR_MESSAGE();
               RAISERROR(@ErrorMsg, 16, 1);
           END CATCH
@@ -213,10 +418,8 @@ examples:
                   )
 
                   conn.commit()
-                  return UpdateResult(
-                      updated_count=updated_count,
-                      success=True,
-                  )
+                  return UpdateResult(updated_count=updated_count, success=True)
+
               except Exception as e:
                   conn.rollback()
                   return UpdateResult(
@@ -225,244 +428,207 @@ examples:
                       error_message=str(e),
                   )
 
-  - tag: temp_table_fixed_datetime
+  - tag: rowcount_chain_delete
     sql: |
-      CREATE PROCEDURE ProcessMonthlyReport
-          @Year INT,
-          @Month INT
+      CREATE PROCEDURE dbo.DeleteUserAndProfile
+          @UserID INT
       AS
       BEGIN
-          SET NOCOUNT ON;
-
-          CREATE TABLE #MonthlySales (
-              ProductID INT,
-              ProductName NVARCHAR(200),
-              TotalQty INT,
-              TotalRevenue DECIMAL(18,2)
-          );
-
-          INSERT INTO #MonthlySales (ProductID, ProductName, TotalQty, TotalRevenue)
-          SELECT
-              p.ProductID,
-              p.ProductName,
-              SUM(od.Quantity) AS TotalQty,
-              SUM(od.Quantity * od.UnitPrice) AS TotalRevenue
-          FROM OrderDetails od
-          JOIN Orders o ON od.OrderID = o.OrderID
-          JOIN Products p ON od.ProductID = p.ProductID
-          WHERE YEAR(o.OrderDate) = @Year
-            AND MONTH(o.OrderDate) = @Month
-          GROUP BY p.ProductID, p.ProductName;
-
-          UPDATE p
-          SET p.IsPopular = 1,
-              p.LastPopularDate = GETDATE()
-          FROM Products p
-          JOIN #MonthlySales ms ON p.ProductID = ms.ProductID
-          WHERE ms.TotalQty > 100;
-
-          SELECT *
-          FROM #MonthlySales
-          ORDER BY TotalRevenue DESC;
-
-          DROP TABLE #MonthlySales;
+          BEGIN TRY
+              BEGIN TRANSACTION;
+              DELETE FROM UserProfiles WHERE UserID = @UserID;
+              DELETE FROM Users WHERE UserID = @UserID;
+              COMMIT TRANSACTION;
+          END TRY
+          BEGIN CATCH
+              IF @@TRANCOUNT > 0
+                  ROLLBACK TRANSACTION;
+              RAISERROR(ERROR_MESSAGE(), 16, 1);
+          END CATCH
       END
     python: |
       import pyodbc
-      import pandas as pd
-      from datetime import datetime
+      from dataclasses import dataclass
 
 
-      def process_monthly_report(
+      @dataclass
+      class DeleteUserResult:
+          success: bool
+          deleted_profile_count: int
+          deleted_user_count: int
+          error_message: str | None = None
+
+
+      def delete_user_and_profile(
           conn_str: str,
-          year: int,
-          month: int,
-      ) -> pd.DataFrame:
-          """월간 매출 리포트를 생성하고 인기 상품을 마킹합니다."""
+          user_id: int,
+      ) -> DeleteUserResult:
+          """연쇄 DELETE에서는 rowcount를 즉시 저장하고 commit/rollback을 명시합니다."""
 
           with pyodbc.connect(conn_str) as conn:
               conn.autocommit = False
               cursor = conn.cursor()
 
               try:
-                  monthly_sales = pd.read_sql(
-                      """
-                      SELECT
-                          p.ProductID,
-                          p.ProductName,
-                          SUM(od.Quantity) AS TotalQty,
-                          SUM(od.Quantity * od.UnitPrice) AS TotalRevenue
-                      FROM OrderDetails od
-                      JOIN Orders o ON od.OrderID = o.OrderID
-                      JOIN Products p ON od.ProductID = p.ProductID
-                      WHERE YEAR(o.OrderDate) = ?
-                        AND MONTH(o.OrderDate) = ?
-                      GROUP BY p.ProductID, p.ProductName
-                      ORDER BY TotalRevenue DESC
-                      """,
-                      conn,
-                      params=[year, month],
+                  cursor.execute(
+                      "DELETE FROM UserProfiles WHERE UserID = ?",
+                      user_id,
                   )
+                  deleted_profile_count = cursor.rowcount
 
-                  popular_ids = monthly_sales.loc[
-                      monthly_sales["TotalQty"] > 100,
-                      "ProductID",
-                  ].tolist()
+                  cursor.execute(
+                      "DELETE FROM Users WHERE UserID = ?",
+                      user_id,
+                  )
+                  deleted_user_count = cursor.rowcount
 
-                  if popular_ids:
-                      placeholders = ",".join("?" for _ in popular_ids)
-                      query = f"""
-                          UPDATE Products
-                          SET IsPopular = 1,
-                              LastPopularDate = ?
-                          WHERE ProductID IN ({placeholders})
-                      """
-                      cursor.execute(query, datetime.now(), *popular_ids)
+                  if deleted_user_count != 1:
+                      conn.rollback()
+                      return DeleteUserResult(
+                          success=False,
+                          deleted_profile_count=deleted_profile_count,
+                          deleted_user_count=deleted_user_count,
+                          error_message="user not deleted",
+                      )
 
                   conn.commit()
-                  return monthly_sales
-              except Exception:
+                  return DeleteUserResult(
+                      success=True,
+                      deleted_profile_count=deleted_profile_count,
+                      deleted_user_count=deleted_user_count,
+                  )
+              except Exception as e:
                   conn.rollback()
-                  raise
+                  return DeleteUserResult(
+                      success=False,
+                      deleted_profile_count=0,
+                      deleted_user_count=0,
+                      error_message=str(e),
+                  )
 
-  - tag: dynamic_sql
+  - tag: no_error_query_try_except
     sql: |
-      CREATE PROCEDURE SearchProducts
-          @Keyword NVARCHAR(100) = NULL,
-          @CategoryID INT = NULL,
-          @SortBy NVARCHAR(50) = N'ProductName',
-          @PageNum INT = 1,
-          @PageSize INT = 20,
-          @TotalCount INT OUTPUT
+      CREATE PROCEDURE dbo.UpdateStock
+          @ProductID INT,
+          @Qty INT
       AS
       BEGIN
-          SET NOCOUNT ON;
-
-          IF @PageNum < 1
-          BEGIN
-              RAISERROR(N'@PageNum은 1 이상이어야 합니다.', 16, 1);
-              RETURN;
-          END
-
-          IF @PageSize < 1
-          BEGIN
-              RAISERROR(N'@PageSize는 1 이상이어야 합니다.', 16, 1);
-              RETURN;
-          END
-
-          IF @SortBy NOT IN (N'ProductID', N'ProductName', N'Price', N'CategoryID')
-          BEGIN
-              RAISERROR(N'유효하지 않은 정렬 컬럼입니다.', 16, 1);
-              RETURN;
-          END
-
-          IF @Keyword = N''
-              SET @Keyword = NULL;
-
-          DECLARE @SQL NVARCHAR(MAX);
-
-          SELECT @TotalCount = COUNT(*)
-          FROM Products
-          WHERE (@Keyword IS NULL OR ProductName LIKE N'%' + @Keyword + N'%')
-            AND (@CategoryID IS NULL OR CategoryID = @CategoryID);
-
-          SET @SQL = N'
-              SELECT ProductID, ProductName, Price, CategoryID
-              FROM Products
-              WHERE (@Keyword IS NULL OR ProductName LIKE N''%'' + @Keyword + N''%'')
-                AND (@CategoryID IS NULL OR CategoryID = @CategoryID)
-              ORDER BY ' + QUOTENAME(@SortBy) + N'
-              OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;';
-
-          EXEC sp_executesql
-              @SQL,
-              N'@Keyword NVARCHAR(100), @CategoryID INT, @Offset INT, @PageSize INT',
-              @Keyword = @Keyword,
-              @CategoryID = @CategoryID,
-              @Offset = (@PageNum - 1) * @PageSize,
-              @PageSize = @PageSize;
+          UPDATE Products
+          SET StockQty = StockQty + @Qty
+          WHERE ProductID = @ProductID;
+          IF @@ERROR <> 0
+              RETURN -1;
+          RETURN 0;
       END
     python: |
       import pyodbc
-      import pandas as pd
       from dataclasses import dataclass
 
 
       @dataclass
-      class SearchResult:
-          data: pd.DataFrame
-          total_count: int
-          page_num: int
-          page_size: int
-
-          @property
-          def total_pages(self) -> int:
-              return -(-self.total_count // self.page_size)
+      class UpdateStockResult:
+          return_code: int
+          success: bool
+          error_message: str | None = None
 
 
-      def search_products(
+      def update_stock(
           conn_str: str,
-          keyword: str | None = None,
-          category_id: int | None = None,
-          sort_by: str = "ProductName",
-          page_num: int = 1,
-          page_size: int = 20,
-      ) -> SearchResult:
-          """상품 검색 + 총 건수 + 페이징 결과 반환"""
-
-          allowed_sorts = {"ProductID", "ProductName", "Price", "CategoryID"}
-          if sort_by not in allowed_sorts:
-              raise ValueError(f"sort_by는 {sorted(allowed_sorts)} 중 하나여야 합니다.")
-          if page_num < 1:
-              raise ValueError("page_num은 1 이상이어야 합니다.")
-          if page_size < 1:
-              raise ValueError("page_size는 1 이상이어야 합니다.")
-          if keyword == "":
-              keyword = None
-
-          conditions: list[str] = []
-          params: list[object] = []
-
-          if keyword is not None:
-              conditions.append("ProductName LIKE ?")
-              params.append(f"%{keyword}%")
-          if category_id is not None:
-              conditions.append("CategoryID = ?")
-              params.append(category_id)
-
-          where_clause = " AND ".join(conditions) if conditions else "1=1"
-          offset = (page_num - 1) * page_size
-
-          count_sql = f"""
-              SELECT COUNT(*) AS cnt
-              FROM Products
-              WHERE {where_clause}
-          """
-
-          data_sql = f"""
-              SELECT ProductID, ProductName, Price, CategoryID
-              FROM Products
-              WHERE {where_clause}
-              ORDER BY {sort_by}
-              OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
-          """
+          product_id: int,
+          qty: int,
+      ) -> UpdateStockResult:
+          """Python 예시에서는 @@ERROR 조회 대신 try/except를 사용합니다."""
 
           with pyodbc.connect(conn_str) as conn:
-              count_df = pd.read_sql(count_sql, conn, params=params)
-              total_count = int(count_df.iloc[0]["cnt"])
+              conn.autocommit = False
+              cursor = conn.cursor()
 
-              data_df = pd.read_sql(
-                  data_sql,
-                  conn,
-                  params=params + [offset, page_size],
-              )
+              try:
+                  cursor.execute(
+                      """
+                      UPDATE Products
+                      SET StockQty = StockQty + ?
+                      WHERE ProductID = ?
+                      """,
+                      qty,
+                      product_id,
+                  )
+                  conn.commit()
+                  return UpdateStockResult(return_code=0, success=True)
+              except Exception as e:
+                  conn.rollback()
+                  return UpdateStockResult(
+                      return_code=-1,
+                      success=False,
+                      error_message=str(e),
+                  )
 
-          return SearchResult(
-              data=data_df,
-              total_count=total_count,
-              page_num=page_num,
-              page_size=page_size,
-          )
+  - tag: optional_param_binding_order
+    sql: |
+      CREATE PROCEDURE dbo.UpdateBookMeta
+          @Isbn VARCHAR(20),
+          @Title NVARCHAR(200),
+          @Pages INT = NULL,
+          @PublishYear INT = NULL,
+          @CategoryID INT = NULL
+      AS
+      BEGIN
+          UPDATE Books
+          SET Title = @Title,
+              Pages = @Pages,
+              PublishYear = @PublishYear,
+              CategoryID = @CategoryID
+          WHERE Isbn = @Isbn;
+      END
+    python: |
+      import pyodbc
+      from dataclasses import dataclass
+
+
+      @dataclass
+      class UpdateBookMetaResult:
+          success: bool
+          error_message: str | None = None
+
+
+      def update_book_meta(
+          conn_str: str,
+          isbn: str,
+          title: str,
+          pages: int | None = None,
+          publish_year: int | None = None,
+          category_id: int | None = None,
+      ) -> UpdateBookMetaResult:
+          """optional 파라미터가 많아도 execute 인자 순서는 SQL SET 절과 정확히 맞춥니다."""
+
+          with pyodbc.connect(conn_str) as conn:
+              conn.autocommit = False
+              cursor = conn.cursor()
+
+              try:
+                  cursor.execute(
+                      """
+                      UPDATE Books
+                      SET Title = ?,
+                          Pages = ?,
+                          PublishYear = ?,
+                          CategoryID = ?
+                      WHERE Isbn = ?
+                      """,
+                      title,
+                      pages,
+                      publish_year,
+                      category_id,
+                      isbn,
+                  )
+                  conn.commit()
+                  return UpdateBookMetaResult(success=True)
+              except Exception as e:
+                  conn.rollback()
+                  return UpdateBookMetaResult(
+                      success=False,
+                      error_message=str(e),
+                  )
 
   - tag: merge_upsert_fixed_datetime
     sql: |
@@ -474,17 +640,14 @@ examples:
       AS
       BEGIN
           SET NOCOUNT ON;
-
           BEGIN TRY
               BEGIN TRANSACTION;
-
               UPDATE Customers
               SET CustomerName = @CustomerName,
                   Email = @Email,
                   Phone = @Phone,
                   ModifiedDate = GETDATE()
               WHERE CustomerID = @CustomerID;
-
               IF @@ROWCOUNT = 0
               BEGIN
                   INSERT INTO Customers
@@ -492,13 +655,11 @@ examples:
                   VALUES
                       (@CustomerID, @CustomerName, @Email, @Phone, GETDATE());
               END
-
               COMMIT TRANSACTION;
           END TRY
           BEGIN CATCH
               IF @@TRANCOUNT > 0
                   ROLLBACK TRANSACTION;
-
               DECLARE @ErrorMsg NVARCHAR(4000) = ERROR_MESSAGE();
               RAISERROR(@ErrorMsg, 16, 1);
           END CATCH
@@ -585,35 +746,28 @@ examples:
       AS
       BEGIN
           SET NOCOUNT ON;
-
           BEGIN TRY
               BEGIN TRANSACTION;
-
               UPDATE Products
               SET IsDeleted = 1,
                   DeletedBy = @DeletedBy,
                   DeletedDate = GETDATE()
               WHERE ProductID = @ProductID
                 AND IsDeleted = 0;
-
               SET @DeletedCount = @@ROWCOUNT;
-
               IF @DeletedCount = 0
               BEGIN
                   RAISERROR(N'삭제 가능한 상품이 존재하지 않습니다.', 16, 1);
               END
-
               INSERT INTO ProductDeleteLog
                   (ProductID, DeletedBy, DeletedDate)
               VALUES
                   (@ProductID, @DeletedBy, GETDATE());
-
               COMMIT TRANSACTION;
           END TRY
           BEGIN CATCH
               IF @@TRANCOUNT > 0
                   ROLLBACK TRANSACTION;
-
               DECLARE @ErrorMsg NVARCHAR(4000) = ERROR_MESSAGE();
               RAISERROR(@ErrorMsg, 16, 1);
           END CATCH
@@ -675,10 +829,7 @@ examples:
                   )
 
                   conn.commit()
-                  return SoftDeleteResult(
-                      deleted_count=deleted_count,
-                      success=True,
-                  )
+                  return SoftDeleteResult(deleted_count=deleted_count, success=True)
 
               except Exception as e:
                   conn.rollback()
@@ -688,13 +839,60 @@ examples:
                       error_message=str(e),
                   )
 
+  - tag: identity_output_inserted
+    sql: |
+      CREATE PROCEDURE dbo.CreateCategory
+          @CategoryName NVARCHAR(100)
+      AS
+      BEGIN
+          INSERT INTO Categories (CategoryName, CreatedDate)
+          OUTPUT INSERTED.CategoryID
+          VALUES (@CategoryName, GETDATE());
+      END
+    python: |
+      import pyodbc
+      from datetime import datetime
+      from dataclasses import dataclass
+
+
+      @dataclass
+      class CreateCategoryResult:
+          category_id: int
+
+
+      def create_category(
+          conn_str: str,
+          category_name: str,
+      ) -> CreateCategoryResult:
+          """생성된 ID는 OUTPUT INSERTED 결과로 회수합니다."""
+
+          with pyodbc.connect(conn_str) as conn:
+              conn.autocommit = False
+              cursor = conn.cursor()
+
+              try:
+                  cursor.execute(
+                      """
+                      INSERT INTO Categories (CategoryName, CreatedDate)
+                      OUTPUT INSERTED.CategoryID
+                      VALUES (?, ?)
+                      """,
+                      category_name,
+                      datetime.now(),
+                  )
+                  row = cursor.fetchone()
+                  conn.commit()
+                  return CreateCategoryResult(category_id=int(row[0]))
+              except Exception:
+                  conn.rollback()
+                  raise
+
   - tag: bulk_insert_fixed_datetime
     sql: |
       CREATE PROCEDURE BulkInsertTags
       AS
       BEGIN
           SET NOCOUNT ON;
-
           INSERT INTO Tags (TagName, CreatedDate)
           SELECT TagName, GETDATE()
           FROM StagingTags
@@ -703,7 +901,6 @@ examples:
               FROM Tags t
               WHERE t.TagName = StagingTags.TagName
           );
-
           SELECT @@ROWCOUNT AS InsertedCount;
       END
     python: |
@@ -737,10 +934,8 @@ examples:
 
               try:
                   cursor.fast_executemany = True
-
                   cursor.execute("SELECT TagName FROM Tags")
                   existing = {row[0] for row in cursor.fetchall()}
-
                   now = datetime.now()
                   rows_to_insert = [
                       (tag_name, now)
@@ -765,7 +960,6 @@ examples:
                       inserted_count=len(rows_to_insert),
                       success=True,
                   )
-
               except Exception as e:
                   conn.rollback()
                   return BulkInsertResult(
@@ -784,7 +978,6 @@ examples:
       AS
       BEGIN
           SET NOCOUNT ON;
-
           SELECT
               @TotalOrders = COUNT(*),
               @TotalAmount = ISNULL(SUM(TotalAmount), 0),
@@ -839,19 +1032,11 @@ examples:
       AS
       BEGIN
           SET NOCOUNT ON;
-
-          SELECT
-              CustomerID,
-              CustomerName,
-              Email
+          SELECT CustomerID, CustomerName, Email
           FROM Customers
           WHERE CustomerID = @CustomerID;
-
           SELECT TOP (5)
-              OrderID,
-              OrderDate,
-              TotalAmount,
-              Status
+              OrderID, OrderDate, TotalAmount, Status
           FROM Orders
           WHERE CustomerID = @CustomerID
           ORDER BY OrderDate DESC;
@@ -878,18 +1063,12 @@ examples:
               cursor = conn.cursor()
               cursor.execute(
                   """
-                  SELECT
-                      CustomerID,
-                      CustomerName,
-                      Email
+                  SELECT CustomerID, CustomerName, Email
                   FROM Customers
                   WHERE CustomerID = ?;
 
                   SELECT TOP (5)
-                      OrderID,
-                      OrderDate,
-                      TotalAmount,
-                      Status
+                      OrderID, OrderDate, TotalAmount, Status
                   FROM Orders
                   WHERE CustomerID = ?
                   ORDER BY OrderDate DESC;
@@ -901,8 +1080,7 @@ examples:
               customer_rows = cursor.fetchall()
               customer_columns = [col[0] for col in cursor.description]
               customer_df = pd.DataFrame.from_records(
-                  customer_rows,
-                  columns=customer_columns,
+                  customer_rows, columns=customer_columns,
               )
 
               cursor.nextset()
@@ -910,8 +1088,7 @@ examples:
               recent_order_rows = cursor.fetchall()
               recent_order_columns = [col[0] for col in cursor.description]
               recent_orders_df = pd.DataFrame.from_records(
-                  recent_order_rows,
-                  columns=recent_order_columns,
+                  recent_order_rows, columns=recent_order_columns,
               )
 
           return DashboardData(
@@ -919,530 +1096,220 @@ examples:
               recent_orders=recent_orders_df,
           )
 
-  - tag: cte_ranking
+  - tag: temp_table_fixed_datetime
     sql: |
-      CREATE PROCEDURE GetTopProductsByCategory
-          @CategoryID INT,
-          @TopN INT = 3
+      CREATE PROCEDURE ProcessMonthlyReport
+          @Year INT,
+          @Month INT
       AS
       BEGIN
           SET NOCOUNT ON;
-
-          ;WITH RankedProducts AS (
-              SELECT
-                  p.ProductID,
-                  p.ProductName,
-                  SUM(od.Quantity) AS TotalQty,
-                  ROW_NUMBER() OVER (
-                      ORDER BY SUM(od.Quantity) DESC, p.ProductName ASC
-                  ) AS RowNum
-              FROM Products p
-              JOIN OrderDetails od ON p.ProductID = od.ProductID
-              WHERE p.CategoryID = @CategoryID
-              GROUP BY p.ProductID, p.ProductName
-          )
+          CREATE TABLE #MonthlySales (
+              ProductID INT,
+              ProductName NVARCHAR(200),
+              TotalQty INT,
+              TotalRevenue DECIMAL(18,2)
+          );
+          INSERT INTO #MonthlySales (ProductID, ProductName, TotalQty, TotalRevenue)
           SELECT
-              ProductID,
-              ProductName,
-              TotalQty
-          FROM RankedProducts
-          WHERE RowNum <= @TopN
-          ORDER BY RowNum;
+              p.ProductID, p.ProductName,
+              SUM(od.Quantity) AS TotalQty,
+              SUM(od.Quantity * od.UnitPrice) AS TotalRevenue
+          FROM OrderDetails od
+          JOIN Orders o ON od.OrderID = o.OrderID
+          JOIN Products p ON od.ProductID = p.ProductID
+          WHERE YEAR(o.OrderDate) = @Year
+            AND MONTH(o.OrderDate) = @Month
+          GROUP BY p.ProductID, p.ProductName;
+          UPDATE p
+          SET p.IsPopular = 1,
+              p.LastPopularDate = GETDATE()
+          FROM Products p
+          JOIN #MonthlySales ms ON p.ProductID = ms.ProductID
+          WHERE ms.TotalQty > 100;
+          SELECT * FROM #MonthlySales ORDER BY TotalRevenue DESC;
+          DROP TABLE #MonthlySales;
       END
     python: |
       import pyodbc
       import pandas as pd
-
-
-      def get_top_products_by_category(
-          conn_str: str,
-          category_id: int,
-          top_n: int = 3,
-      ) -> pd.DataFrame:
-          """카테고리별 판매량 상위 상품을 조회합니다."""
-
-          query = """
-              WITH RankedProducts AS (
-                  SELECT
-                      p.ProductID,
-                      p.ProductName,
-                      SUM(od.Quantity) AS TotalQty,
-                      ROW_NUMBER() OVER (
-                          ORDER BY SUM(od.Quantity) DESC, p.ProductName ASC
-                      ) AS RowNum
-                  FROM Products p
-                  JOIN OrderDetails od ON p.ProductID = od.ProductID
-                  WHERE p.CategoryID = ?
-                  GROUP BY p.ProductID, p.ProductName
-              )
-              SELECT
-                  ProductID,
-                  ProductName,
-                  TotalQty
-              FROM RankedProducts
-              WHERE RowNum <= ?
-              ORDER BY RowNum
-          """
-
-          with pyodbc.connect(conn_str) as conn:
-              df = pd.read_sql(query, conn, params=[category_id, top_n])
-
-          return df
-
-  - tag: nullable_param_reorder
-    sql: |
-      CREATE PROCEDURE dbo.UpdateAuthorInfo
-          @FirstName NVARCHAR(100),
-          @MiddleName NVARCHAR(100) = NULL,
-          @AuthorID INT,
-          @BirthYear INT = NULL
-      AS
-      BEGIN
-          UPDATE Authors
-          SET FirstName = @FirstName,
-              MiddleName = @MiddleName,
-              BirthYear = @BirthYear
-          WHERE AuthorID = @AuthorID;
-      END
-    python: |
-      import pyodbc
-      from dataclasses import dataclass
-
-
-      @dataclass
-      class UpdateAuthorInfoResult:
-          success: bool
-          error_message: str | None = None
-
-
-      def update_author_info(
-          conn_str: str,
-          first_name: str,
-          author_id: int,
-          middle_name: str | None = None,
-          birth_year: int | None = None,
-      ) -> UpdateAuthorInfoResult:
-          """중간 nullable 파라미터가 있어도 Python 인자 순서는 기본값 없는 것이 먼저입니다."""
-
-          with pyodbc.connect(conn_str) as conn:
-              conn.autocommit = False
-              cursor = conn.cursor()
-
-              try:
-                  cursor.execute(
-                      """
-                      UPDATE Authors
-                      SET FirstName = ?,
-                          MiddleName = ?,
-                          BirthYear = ?
-                      WHERE AuthorID = ?
-                      """,
-                      first_name,
-                      middle_name,
-                      birth_year,
-                      author_id,
-                  )
-                  conn.commit()
-                  return UpdateAuthorInfoResult(success=True)
-              except Exception as e:
-                  conn.rollback()
-                  return UpdateAuthorInfoResult(success=False, error_message=str(e))
-
-  - tag: identity_output_inserted
-    sql: |
-      CREATE PROCEDURE dbo.CreateCategory
-          @CategoryName NVARCHAR(100)
-      AS
-      BEGIN
-          INSERT INTO Categories (CategoryName, CreatedDate)
-          OUTPUT INSERTED.CategoryID
-          VALUES (@CategoryName, GETDATE());
-      END
-    python: |
-      import pyodbc
       from datetime import datetime
-      from dataclasses import dataclass
 
 
-      @dataclass
-      class CreateCategoryResult:
-          category_id: int
-
-
-      def create_category(
+      def process_monthly_report(
           conn_str: str,
-          category_name: str,
-      ) -> CreateCategoryResult:
-          """생성된 ID는 OUTPUT INSERTED 결과로 회수합니다."""
+          year: int,
+          month: int,
+      ) -> pd.DataFrame:
+          """월간 매출 리포트를 생성하고 인기 상품을 마킹합니다."""
 
           with pyodbc.connect(conn_str) as conn:
               conn.autocommit = False
               cursor = conn.cursor()
 
               try:
-                  cursor.execute(
+                  monthly_sales = pd.read_sql(
                       """
-                      INSERT INTO Categories (CategoryName, CreatedDate)
-                      OUTPUT INSERTED.CategoryID
-                      VALUES (?, ?)
+                      SELECT
+                          p.ProductID, p.ProductName,
+                          SUM(od.Quantity) AS TotalQty,
+                          SUM(od.Quantity * od.UnitPrice) AS TotalRevenue
+                      FROM OrderDetails od
+                      JOIN Orders o ON od.OrderID = o.OrderID
+                      JOIN Products p ON od.ProductID = p.ProductID
+                      WHERE YEAR(o.OrderDate) = ?
+                        AND MONTH(o.OrderDate) = ?
+                      GROUP BY p.ProductID, p.ProductName
+                      ORDER BY TotalRevenue DESC
                       """,
-                      category_name,
-                      datetime.now(),
+                      conn,
+                      params=[year, month],
                   )
-                  row = cursor.fetchone()
+
+                  popular_ids = monthly_sales.loc[
+                      monthly_sales["TotalQty"] > 100, "ProductID"
+                  ].tolist()
+
+                  if popular_ids:
+                      placeholders = ",".join("?" for _ in popular_ids)
+                      query = f"""
+                          UPDATE Products
+                          SET IsPopular = 1,
+                              LastPopularDate = ?
+                          WHERE ProductID IN ({placeholders})
+                      """
+                      cursor.execute(query, datetime.now(), *popular_ids)
+
                   conn.commit()
-                  return CreateCategoryResult(category_id=int(row[0]))
+                  return monthly_sales
               except Exception:
                   conn.rollback()
                   raise
 
-  - tag: getdate_to_datetime_insert
+  - tag: dynamic_sql
     sql: |
-      CREATE PROCEDURE dbo.InsertAuditLog
-          @UserID INT,
-          @ActionName NVARCHAR(100)
+      CREATE PROCEDURE SearchProducts
+          @Keyword NVARCHAR(100) = NULL,
+          @CategoryID INT = NULL,
+          @SortBy NVARCHAR(50) = N'ProductName',
+          @PageNum INT = 1,
+          @PageSize INT = 20,
+          @TotalCount INT OUTPUT
       AS
       BEGIN
-          INSERT INTO AuditLogs (UserID, ActionName, CreatedAt)
-          VALUES (@UserID, @ActionName, GETDATE());
+          SET NOCOUNT ON;
+          IF @PageNum < 1
+          BEGIN
+              RAISERROR(N'@PageNum은 1 이상이어야 합니다.', 16, 1);
+              RETURN;
+          END
+          IF @PageSize < 1
+          BEGIN
+              RAISERROR(N'@PageSize는 1 이상이어야 합니다.', 16, 1);
+              RETURN;
+          END
+          IF @SortBy NOT IN (N'ProductID', N'ProductName', N'Price', N'CategoryID')
+          BEGIN
+              RAISERROR(N'유효하지 않은 정렬 컬럼입니다.', 16, 1);
+              RETURN;
+          END
+          IF @Keyword = N''
+              SET @Keyword = NULL;
+          DECLARE @SQL NVARCHAR(MAX);
+          SELECT @TotalCount = COUNT(*)
+          FROM Products
+          WHERE (@Keyword IS NULL OR ProductName LIKE N'%' + @Keyword + N'%')
+            AND (@CategoryID IS NULL OR CategoryID = @CategoryID);
+          SET @SQL = N'
+              SELECT ProductID, ProductName, Price, CategoryID
+              FROM Products
+              WHERE (@Keyword IS NULL OR ProductName LIKE N''%'' + @Keyword + N''%'')
+                AND (@CategoryID IS NULL OR CategoryID = @CategoryID)
+              ORDER BY ' + QUOTENAME(@SortBy) + N'
+              OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;';
+          EXEC sp_executesql
+              @SQL,
+              N'@Keyword NVARCHAR(100), @CategoryID INT, @Offset INT, @PageSize INT',
+              @Keyword = @Keyword,
+              @CategoryID = @CategoryID,
+              @Offset = (@PageNum - 1) * @PageSize,
+              @PageSize = @PageSize;
       END
     python: |
       import pyodbc
-      from datetime import datetime
+      import pandas as pd
       from dataclasses import dataclass
 
 
       @dataclass
-      class InsertAuditLogResult:
-          success: bool
-          error_message: str | None = None
+      class SearchResult:
+          data: pd.DataFrame
+          total_count: int
+          page_num: int
+          page_size: int
+
+          @property
+          def total_pages(self) -> int:
+              return -(-self.total_count // self.page_size)
 
 
-      def insert_audit_log(
+      def search_products(
           conn_str: str,
-          user_id: int,
-          action_name: str,
-      ) -> InsertAuditLogResult:
-          """GETDATE()는 Python 예시에서는 datetime.now()로 전달합니다."""
-
-          with pyodbc.connect(conn_str) as conn:
-              conn.autocommit = False
-              cursor = conn.cursor()
-
-              try:
-                  cursor.execute(
-                      """
-                      INSERT INTO AuditLogs (UserID, ActionName, CreatedAt)
-                      VALUES (?, ?, ?)
-                      """,
-                      user_id,
-                      action_name,
-                      datetime.now(),
-                  )
-                  conn.commit()
-                  return InsertAuditLogResult(success=True)
-              except Exception as e:
-                  conn.rollback()
-                  return InsertAuditLogResult(success=False, error_message=str(e))
-
-  - tag: rowcount_chain_delete
-    sql: |
-      CREATE PROCEDURE dbo.DeleteUserAndProfile
-          @UserID INT
-      AS
-      BEGIN
-          BEGIN TRY
-              BEGIN TRANSACTION;
-
-              DELETE FROM UserProfiles
-              WHERE UserID = @UserID;
-
-              DELETE FROM Users
-              WHERE UserID = @UserID;
-
-              COMMIT TRANSACTION;
-          END TRY
-          BEGIN CATCH
-              IF @@TRANCOUNT > 0
-                  ROLLBACK TRANSACTION;
-              RAISERROR(ERROR_MESSAGE(), 16, 1);
-          END CATCH
-      END
-    python: |
-      import pyodbc
-      from dataclasses import dataclass
-
-
-      @dataclass
-      class DeleteUserResult:
-          success: bool
-          deleted_profile_count: int
-          deleted_user_count: int
-          error_message: str | None = None
-
-
-      def delete_user_and_profile(
-          conn_str: str,
-          user_id: int,
-      ) -> DeleteUserResult:
-          """연쇄 DELETE에서는 rowcount를 즉시 저장하고 commit/rollback을 명시합니다."""
-
-          with pyodbc.connect(conn_str) as conn:
-              conn.autocommit = False
-              cursor = conn.cursor()
-
-              try:
-                  cursor.execute(
-                      "DELETE FROM UserProfiles WHERE UserID = ?",
-                      user_id,
-                  )
-                  deleted_profile_count = cursor.rowcount
-
-                  cursor.execute(
-                      "DELETE FROM Users WHERE UserID = ?",
-                      user_id,
-                  )
-                  deleted_user_count = cursor.rowcount
-
-                  if deleted_user_count != 1:
-                      conn.rollback()
-                      return DeleteUserResult(
-                          success=False,
-                          deleted_profile_count=deleted_profile_count,
-                          deleted_user_count=deleted_user_count,
-                          error_message="user not deleted",
-                      )
-
-                  conn.commit()
-                  return DeleteUserResult(
-                      success=True,
-                      deleted_profile_count=deleted_profile_count,
-                      deleted_user_count=deleted_user_count,
-                  )
-              except Exception as e:
-                  conn.rollback()
-                  return DeleteUserResult(
-                      success=False,
-                      deleted_profile_count=0,
-                      deleted_user_count=0,
-                      error_message=str(e),
-                  )
-
-  - tag: no_error_query_try_except
-    sql: |
-      CREATE PROCEDURE dbo.UpdateStock
-          @ProductID INT,
-          @Qty INT
-      AS
-      BEGIN
-          UPDATE Products
-          SET StockQty = StockQty + @Qty
-          WHERE ProductID = @ProductID;
-
-          IF @@ERROR <> 0
-              RETURN -1;
-
-          RETURN 0;
-      END
-    python: |
-      import pyodbc
-      from dataclasses import dataclass
-
-
-      @dataclass
-      class UpdateStockResult:
-          return_code: int
-          success: bool
-          error_message: str | None = None
-
-
-      def update_stock(
-          conn_str: str,
-          product_id: int,
-          qty: int,
-      ) -> UpdateStockResult:
-          """Python 예시에서는 @@ERROR 조회 대신 try/except를 사용합니다."""
-
-          with pyodbc.connect(conn_str) as conn:
-              conn.autocommit = False
-              cursor = conn.cursor()
-
-              try:
-                  cursor.execute(
-                      """
-                      UPDATE Products
-                      SET StockQty = StockQty + ?
-                      WHERE ProductID = ?
-                      """,
-                      qty,
-                      product_id,
-                  )
-                  conn.commit()
-                  return UpdateStockResult(return_code=0, success=True)
-              except Exception as e:
-                  conn.rollback()
-                  return UpdateStockResult(
-                      return_code=-1,
-                      success=False,
-                      error_message=str(e),
-                  )
-
-  - tag: placeholder_strict_match
-    sql: |
-      CREATE PROCEDURE dbo.InsertBookEdition
-          @Isbn VARCHAR(20),
-          @Edition INT,
-          @PublishedYear INT
-      AS
-      BEGIN
-          INSERT INTO BookEditions (Isbn, Edition, PublishedYear)
-          VALUES (@Isbn, @Edition, @PublishedYear);
-      END
-    python: |
-      import pyodbc
-      from dataclasses import dataclass
-
-
-      @dataclass
-      class InsertBookEditionResult:
-          success: bool
-          error_message: str | None = None
-
-
-      def insert_book_edition(
-          conn_str: str,
-          isbn: str,
-          edition: int,
-          published_year: int,
-      ) -> InsertBookEditionResult:
-          """컬럼 순서 = placeholder 순서 = execute 인자 순서"""
-
-          with pyodbc.connect(conn_str) as conn:
-              conn.autocommit = False
-              cursor = conn.cursor()
-
-              try:
-                  cursor.execute(
-                      """
-                      INSERT INTO BookEditions (Isbn, Edition, PublishedYear)
-                      VALUES (?, ?, ?)
-                      """,
-                      isbn,
-                      edition,
-                      published_year,
-                  )
-                  conn.commit()
-                  return InsertBookEditionResult(success=True)
-              except Exception as e:
-                  conn.rollback()
-                  return InsertBookEditionResult(success=False, error_message=str(e))
-
-  - tag: function_name_preserve
-    sql: |
-      CREATE PROCEDURE dbo.usp_sync_customer_grade
-          @CustomerID INT
-      AS
-      BEGIN
-          UPDATE Customers
-          SET Grade = 'VIP'
-          WHERE CustomerID = @CustomerID;
-      END
-    python: |
-      import pyodbc
-      from dataclasses import dataclass
-
-
-      @dataclass
-      class UspSyncCustomerGradeResult:
-          success: bool
-          error_message: str | None = None
-
-
-      def usp_sync_customer_grade(
-          conn_str: str,
-          customer_id: int,
-      ) -> UspSyncCustomerGradeResult:
-          """프로시저 이름은 Python 함수명에서도 유지합니다."""
-
-          with pyodbc.connect(conn_str) as conn:
-              conn.autocommit = False
-              cursor = conn.cursor()
-
-              try:
-                  cursor.execute(
-                      """
-                      UPDATE Customers
-                      SET Grade = 'VIP'
-                      WHERE CustomerID = ?
-                      """,
-                      customer_id,
-                  )
-                  conn.commit()
-                  return UspSyncCustomerGradeResult(success=True)
-              except Exception as e:
-                  conn.rollback()
-                  return UspSyncCustomerGradeResult(success=False, error_message=str(e))
-
-  - tag: optional_param_binding_order
-    sql: |
-      CREATE PROCEDURE dbo.UpdateBookMeta
-          @Isbn VARCHAR(20),
-          @Title NVARCHAR(200),
-          @Pages INT = NULL,
-          @PublishYear INT = NULL,
-          @CategoryID INT = NULL
-      AS
-      BEGIN
-          UPDATE Books
-          SET Title = @Title,
-              Pages = @Pages,
-              PublishYear = @PublishYear,
-              CategoryID = @CategoryID
-          WHERE Isbn = @Isbn;
-      END
-    python: |
-      import pyodbc
-      from dataclasses import dataclass
-
-
-      @dataclass
-      class UpdateBookMetaResult:
-          success: bool
-          error_message: str | None = None
-
-
-      def update_book_meta(
-          conn_str: str,
-          isbn: str,
-          title: str,
-          pages: int | None = None,
-          publish_year: int | None = None,
+          keyword: str | None = None,
           category_id: int | None = None,
-      ) -> UpdateBookMetaResult:
-          """optional 파라미터가 많아도 execute 인자 순서는 SQL SET 절과 정확히 맞춥니다."""
+          sort_by: str = "ProductName",
+          page_num: int = 1,
+          page_size: int = 20,
+      ) -> SearchResult:
+          """상품 검색 + 총 건수 + 페이징 결과 반환"""
+
+          allowed_sorts = {"ProductID", "ProductName", "Price", "CategoryID"}
+          if sort_by not in allowed_sorts:
+              raise ValueError(f"sort_by는 {sorted(allowed_sorts)} 중 하나여야 합니다.")
+          if page_num < 1:
+              raise ValueError("page_num은 1 이상이어야 합니다.")
+          if page_size < 1:
+              raise ValueError("page_size는 1 이상이어야 합니다.")
+          if keyword == "":
+              keyword = None
+
+          conditions: list[str] = []
+          params: list[object] = []
+
+          if keyword is not None:
+              conditions.append("ProductName LIKE ?")
+              params.append(f"%{keyword}%")
+          if category_id is not None:
+              conditions.append("CategoryID = ?")
+              params.append(category_id)
+
+          where_clause = " AND ".join(conditions) if conditions else "1=1"
+          offset = (page_num - 1) * page_size
+
+          count_sql = f"""
+              SELECT COUNT(*) AS cnt
+              FROM Products
+              WHERE {where_clause}
+          """
+
+          data_sql = f"""
+              SELECT ProductID, ProductName, Price, CategoryID
+              FROM Products
+              WHERE {where_clause}
+              ORDER BY {sort_by}
+              OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+          """
 
           with pyodbc.connect(conn_str) as conn:
-              conn.autocommit = False
-              cursor = conn.cursor()
+              count_df = pd.read_sql(count_sql, conn, params=params)
+              total_count = int(count_df.iloc[0]["cnt"])
+              data_df = pd.read_sql(
+                  data_sql, conn, params=params + [offset, page_size],
+              )
 
-              try:
-                  cursor.execute(
-                      """
-                      UPDATE Books
-                      SET Title = ?,
-                          Pages = ?,
-                          PublishYear = ?,
-                          CategoryID = ?
-                      WHERE Isbn = ?
-                      """,
-                      title,
-                      pages,
-                      publish_year,
-                      category_id,
-                      isbn,
-                  )
-                  conn.commit()
-                  return UpdateBookMetaResult(success=True)
-              except Exception as e:
-                  conn.rollback()
-                  return UpdateBookMetaResult(success=False, error_message=str(e))
+          return SearchResult(
+              data=data_df,
+              total_count=total_count,
+              page_num=page_num,
+              page_size=page_size,
+          )

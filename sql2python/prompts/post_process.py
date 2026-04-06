@@ -10,6 +10,8 @@
 파이프라인 진입점은 ``post_process_python``.
 """
 
+from __future__ import annotations
+
 import ast
 import re
 

@@ -100,6 +100,24 @@ SYSTEM_INSTRUCTION = """\
 잘못된 예:
   def func(conn_str: str, name: str, surname2: str | None = None, pid: int)
 
+=== 핵심 변환 원칙 3가지 ===
+
+[1. 파라미터 순서]
+- SQL에서 NULL 허용(@param = NULL)이 중간에 있어도
+  Python 함수에서는 기본값 없는 파라미터가 반드시 먼저.
+  잘못된 예: def f(a, b=None, c)  ← SyntaxError
+  올바른 예: def f(a, c, b=None)
+
+[2. placeholder 매핑]
+- SQL SET/VALUES 절의 컬럼 순서 = ? 개수 = execute 인자 순서 반드시 일치.
+  잘못된 예: SET Pages=?, Year=?  → execute(pages, pages)  ← 중복
+  올바른 예: SET Pages=?, Year=?  → execute(pages, year)
+
+[3. commit/rollback]
+- try 블록 성공 경로 끝에서 conn.commit().
+- except 블록 첫 줄에서 conn.rollback().
+- 둘 중 하나라도 빠지면 잘못된 변환.
+
 === 반환 타입 기준 ===
 - SELECT 결과 (여러 행)            → pd.DataFrame
 - 단일 집계값                      → int / float / str 등 기본 타입
